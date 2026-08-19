@@ -12029,5 +12029,6 @@ function NutriTrack() {
   return null;
 }
 
-// Set global for index.html to find
+// Set globals for index.html to find
+window.NutriTrack = NutriTrack;
 window._MainApp = NutriTrack;
