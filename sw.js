@@ -2,11 +2,11 @@
 const CACHE_VERSION = "nutritrack-v61-test";
 
 const PRECACHE_ASSETS = [
-  "/NutriTrack/NutriTrack.js",
-  "/NutriTrack/foods.json",
-  "/NutriTrack/icons/icon-192.png",
-  "/NutriTrack/icons/icon-512.png",
-  "/NutriTrack/icons/apple-touch-icon.png",
+  "/NutriTrack.js",
+  "/foods.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/apple-touch-icon.png",
 ];
 
 // CDN scripts the app loads at bootstrap (React, ReactDOM).
@@ -63,7 +63,7 @@ self.addEventListener("fetch", event => {
   // page offline ("not connected to the internet"); respondWith with a
   // cache fallback is what makes the PWA work offline.
   if (request.method === "GET" &&
-      (url.pathname === "/NutriTrack/" || url.pathname === "/NutriTrack/index.html")) {
+      (url.pathname === "/" || url.pathname === "/index.html")) {
     event.respondWith(
       fetch(request)
         .then(response => {
@@ -73,8 +73,8 @@ self.addEventListener("fetch", event => {
               // Cache under the request URL and the canonical index.html
               // path so either form matches on an offline reload.
               cache.put(request, clone);
-              if (url.pathname === "/NutriTrack/") {
-                cache.put(self.location.origin + "/NutriTrack/index.html", response.clone());
+              if (url.pathname === "/") {
+                cache.put(self.location.origin + "/index.html", response.clone());
               }
             });
           }
@@ -82,7 +82,7 @@ self.addEventListener("fetch", event => {
         })
         .catch(() =>
           caches.match(request, { ignoreSearch: true }).then(cached =>
-            cached || caches.match("/NutriTrack/index.html", { ignoreSearch: true })
+            cached || caches.match("/index.html", { ignoreSearch: true })
           )
         )
     );
@@ -122,9 +122,9 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if (url.pathname === "/NutriTrack/foods.json") {
+  if (url.pathname === "/foods.json") {
     // Network-first with cache fallback. ignoreSearch: true so the
-    // precached bare path (/NutriTrack/foods.json, no ?v=3) is matched
+    // precached bare path (/foods.json, no ?v=3) is matched
     // when the network fetch fails offline.
     event.respondWith(
       fetch(request)

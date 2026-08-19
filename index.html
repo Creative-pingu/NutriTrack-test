@@ -8,11 +8,11 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="manifest" href="/NutriTrack/manifest.webmanifest">
+    <link rel="manifest" href="/manifest.webmanifest">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="NutriTrack">
-    <link rel="apple-touch-icon" href="/NutriTrack/icons/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <meta name="theme-color" content="#3b82f6">
     <style>
         html, body {
@@ -125,7 +125,7 @@
         // newest index.html always loads; code updates then propagate through
         // the SW's own lifecycle (updatefound -> controllerchange).
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/NutriTrack/sw.js?v=' + SHELL_APP_VERSION, { scope: '/NutriTrack/' })
+            navigator.serviceWorker.register('/sw.js?v=' + SHELL_APP_VERSION, { scope: '/' })
                 .then(function(reg) {
                     document.getElementById('sw-status').textContent = 'SW: ' + SHELL_APP_VERSION + ' active';
                     // Expose the ready promise so NutriTrack.jsx's Phase 6d
