@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+// Using global React from CDN
+const { useState, useEffect, useCallback, useRef } = React;
 
-// FOOD_DB is loaded asynchronously from /NutriTrack/foods.json at app start.
+// FOOD_DB is loaded asynchronously from /foods.json at app start.
 // Use the foodDB state (and allFoods / allFoodsForRender derived values) inside
 // the NutriTrack component. Do not reference FOOD_DB anywhere directly.
 // test
@@ -62,7 +63,7 @@ const APP_VERSION = typeof window !== "undefined" && window.APP_VERSION || "unkn
 // Bump this string whenever you deploy a new foods.json to bust the ATHS cache.
 const FOODS_DB_VERSION = "4";
 async function loadFoodDB() {
-  const resp = await fetch(`/NutriTrack/foods.json?v=${FOODS_DB_VERSION}`);
+  const resp = await fetch(`/foods.json?v=${FOODS_DB_VERSION}`);
   if (!resp.ok) throw new Error(`foods.json fetch failed: ${resp.status}`);
   const envelope = await resp.json();
   if (!envelope.schema_version || envelope.schema_version !== 1) {
@@ -1399,8 +1400,8 @@ function SwipeableEntry({
   }, children));
 }
 // ── MAIN APP ──────────────────────────────────────────────────────────────
-export default function NutriTrack() {
-  // ── FOOD DB (async-loaded from /NutriTrack/foods.json) ────────────────
+function NutriTrack() {
+  // ── FOOD DB (async-loaded from /foods.json) ────────────────
   const [foodDB, setFoodDB] = useState([]); // loaded array
   const [foodDBStatus, setFoodDBStatus] = useState("loading"); // "loading" | "ready" | "error"
 
@@ -12027,3 +12028,6 @@ export default function NutriTrack() {
   }
   return null;
 }
+
+// Set global for index.html to find
+window._MainApp = NutriTrack;
