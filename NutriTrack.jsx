@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
  
-// FOOD_DB is loaded asynchronously from /foods.json at app start.
+// FOOD_DB is loaded asynchronously from /NutriTrack-test/foods.json at app start.
 // Use the foodDB state (and allFoods / allFoodsForRender derived values) inside
 // the NutriTrack component. Do not reference FOOD_DB anywhere directly.
 // test
@@ -61,7 +61,7 @@ const APP_VERSION = (typeof window !== "undefined" && window.APP_VERSION) || "un
 const FOODS_DB_VERSION = "4";
 
 async function loadFoodDB() {
-  const resp = await fetch(`/foods.json?v=${FOODS_DB_VERSION}`);
+  const resp = await fetch(`/NutriTrack-test/foods.json?v=${FOODS_DB_VERSION}`);
   if (!resp.ok) throw new Error(`foods.json fetch failed: ${resp.status}`);
   const envelope = await resp.json();
   if (!envelope.schema_version || envelope.schema_version !== 1) {
@@ -781,7 +781,7 @@ function SwipeableEntry({ children, onDelete }) {
 }
 // ── MAIN APP ──────────────────────────────────────────────────────────────
 export default function NutriTrack() {
-  // ── FOOD DB (async-loaded from /foods.json) ────────────────
+  // ── FOOD DB (async-loaded from /NutriTrack-test/foods.json) ────────────────
   const [foodDB,       setFoodDB]       = useState([]);          // loaded array
   const [foodDBStatus, setFoodDBStatus] = useState("loading");   // "loading" | "ready" | "error"
 
