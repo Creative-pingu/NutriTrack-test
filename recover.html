@@ -100,6 +100,9 @@ button.secondary:hover:not(:disabled) {
 <pre id="output"></pre>
 
 <script>
+const NT_PREFIX = 'nt-';
+
+// Also include the known storage keys for more precise matching
 const STORAGE_KEYS = {
   logs: "nt-logs",
   goals: "nt-goals",
@@ -120,8 +123,9 @@ const STORAGE_KEYS = {
   lastOnline: "nt-last-online"
 };
 
-function getStorageKeys() {
-  return Object.values(STORAGE_KEYS);
+function isNutriTrackKey(key) {
+  // Check if key starts with nt- prefix
+  return key.startsWith(NT_PREFIX);
 }
 
 function log(msg, type) {
@@ -138,7 +142,7 @@ function checkStorage() {
   var count = 0, total = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (getStorageKeys().includes(key)) {
+    if (isNutriTrackKey(key)) {
       count++;
       var value = localStorage.getItem(key);
       total += key.length + (value ? value.length : 0);
@@ -193,7 +197,7 @@ function previewData() {
   var count = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (getStorageKeys().includes(key)) {
+    if (isNutriTrackKey(key)) {
       try { 
         var value = localStorage.getItem(key);
         previewData.localStorage[key] = value ? (value.length > 100 ? value.substring(0, 100) + '...' : value) : null;
@@ -250,7 +254,7 @@ function exportData() {
   
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (getStorageKeys().includes(key)) {
+    if (isNutriTrackKey(key)) {
       try { exportData.localStorage[key] = localStorage.getItem(key); }
       catch (e) { log('Failed to read ' + key + ': ' + e.message, 'error'); }
     }
