@@ -10,33 +10,55 @@ button { background: #1976d2; color: white; border: none; padding: 12px 24px; bo
 button:hover:not(:disabled) { background: #1565c0; }
 button:disabled { background: #cccccc; cursor: not-allowed; }
 button.secondary { background: #6c757d; }
+button.danger { background: #d32f2f; }
+button.success { background: #388e3c; }
 #output { background: white; padding: 15px; border-radius: 4px; margin-top: 20px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; border: 1px solid #ddd; }
 .success { color: #388e3c; }
-.error { color: #d32f2f; }
+.error { color: #d32f2f; font-weight: bold; }
 .warning { color: #ff9800; }
 .info { color: #2196f3; }
 .instructions { background: #fff3cd; padding: 15px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #ffc107; }
 .summary { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-top: 20px; border-left: 4px solid #2196f3; }
+.critical { background: #ffebee; padding: 15px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #d32f2f; }
+.diagnostic-result { margin-top: 20px; padding: 15px; border-radius: 4px; }
+.diagnostic-ok { background: #e8f5e9; border: 2px solid #388e3c; }
+.diagnostic-fail { background: #ffebee; border: 2px solid #d32f2f; }
 </style>
 </head>
 <body>
 <h1>NutriTrack - Emergency Recovery (TEST)</h1>
+
+<!-- CRITICAL DATA STATUS - Shows immediately on page load -->
+<div class="critical" id="criticalStatus" style="display:none;">
+  <h2>⚠️ CRITICAL: Data Persistence Issue Detected</h2>
+  <p id="criticalMessage"></p>
+</div>
+
 <div class="instructions">
   <strong>Emergency Mode (TEST):</strong> This page works even if the main app is broken.
   <p>Use this to export your data before clearing cache or reinstalling.</p>
 </div>
+
 <div>
-  <button onclick="exportData()">Export All Data</button>
-  <button onclick="listAllKeys()" class="secondary">List ALL Keys</button>
-  <button onclick="checkStorage()" class="secondary">Check Storage Usage</button>
-  <button onclick="clearCache()" class="secondary">Clear Cache (After Export!)</button>
+  <button onclick="exportData()">📥 Export All Data</button>
+  <button onclick="listAllKeys()" class="secondary">📋 List ALL Keys</button>
+  <button onclick="checkStorage()" class="secondary">💾 Check Storage Usage</button>
+  <button onclick="runDiagnostics()" class="danger">🔍 Diagnose Data Persistence</button>
+  <button onclick="clearCache()" class="secondary">🗑️ Clear Cache (After Export!)</button>
 </div>
+
 <h3>Quick Instructions:</h3>
 <ol>
-  <li>Click <strong>"List ALL Keys"</strong> to verify your data is here</li>
+  <li>If you see a <strong>red warning above</strong>, your data is NOT being saved!</li>
+  <li>Click <strong>"Diagnose Data Persistence"</strong> to run a full test</li>
+  <li>Click <strong>"List ALL Keys"</strong> to see what's actually saved</li>
   <li>Click <strong>"Export All Data"</strong> to download a JSON backup</li>
-  <li>Save the file - filename includes date and app name for easy identification</li>
+  <li>Save the file - filename includes date and time for easy identification</li>
 </ol>
+
+<h3>Diagnostic Results:</h3>
+<div id="diagnosticResults"></div>
+
 <h3>Output Log:</h3>
 <pre id="output"></pre>
 
@@ -48,6 +70,9 @@ const NT_KEYS = [
   "nt-last-validated-at", "nt-display-mode", "nt-energy-unit",
   "nt-recents", "nt-error-logs", "nt-last-online", "nt-logs-backup"
 ];
+
+// Critical keys that MUST exist if data is being saved
+const CRITICAL_KEYS = ["nt-logs", "nt-recipes"];
 
 function log(msg, type) {
   var output = document.getElementById("output");
@@ -63,6 +88,25 @@ function log(msg, type) {
 
 function isNutriTrackKey(key) {
   return NT_KEYS.includes(key) || key.startsWith("nt-");
+}
+
+// Check for critical missing keys on page load
+function checkCriticalKeys() {
+  var missing = [];
+  for (var i = 0; i < CRITICAL_KEYS.length; i++) {
+    var key = CRITICAL_KEYS[i];
+    if (localStorage.getItem(key) === null) {
+      missing.push(key);
+    }
+  }
+  
+  if (missing.length > 0) {
+    var criticalDiv = document.getElementById("criticalStatus");
+    var criticalMsg = document.getElementById("criticalMessage");
+    criticalMsg.textContent = "Missing critical data keys: " + missing.join(", ") + ". Your data may not be saving properly! Use the Diagnose button below.";
+    criticalDiv.style.display = "block";
+    log("WARNING: Missing critical keys: " + missing.join(", "), "error");
+  }
 }
 
 function listAllKeys() {
@@ -92,6 +136,125 @@ function checkStorage() {
   }
   var pct = (total / (5 * 1024 * 1024) * 100).toFixed(1);
   log("localStorage: " + count + " NutriTrack keys, " + (total/1024/1024).toFixed(2) + " MB / 5 MB (" + pct + "%)", "success");
+}
+
+// NEW: Run comprehensive diagnostics
+function runDiagnostics() {
+  log("Running data persistence diagnostics...", "info");
+  
+  var resultsDiv = document.getElementById("diagnosticResults");
+  resultsDiv.innerHTML = "";
+  
+  var allPassed = true;
+  
+  // Test 1: Check if localStorage is available
+  try {
+    localStorage.setItem("nt-diag-test", "test");
+    localStorage.removeItem("nt-diag-test");
+    addDiagnosticResult(resultsDiv, "✓ localStorage is available", true);
+  } catch(e) {
+    addDiagnosticResult(resultsDiv, "✗ localStorage is NOT available: " + e.message, false);
+    allPassed = false;
+  }
+  
+  // Test 2: Check for critical keys
+  var missingCritical = [];
+  for (var i = 0; i < CRITICAL_KEYS.length; i++) {
+    var key = CRITICAL_KEYS[i];
+    var value = localStorage.getItem(key);
+    if (value === null) {
+      missingCritical.push(key);
+      allPassed = false;
+    }
+  }
+  
+  if (missingCritical.length === 0) {
+    addDiagnosticResult(resultsDiv, "✓ All critical keys present (nt-logs, nt-recipes)", true);
+  } else {
+    addDiagnosticResult(resultsDiv, "✗ Missing critical keys: " + missingCritical.join(", "), false);
+  }
+  
+  // Test 3: Check if any NutriTrack keys exist
+  var ntKeyCount = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    if (isNutriTrackKey(localStorage.key(i))) ntKeyCount++;
+  }
+  
+  if (ntKeyCount > 0) {
+    addDiagnosticResult(resultsDiv, "✓ Found " + ntKeyCount + " NutriTrack keys in localStorage", true);
+  } else {
+    addDiagnosticResult(resultsDiv, "✗ NO NutriTrack keys found in localStorage", false);
+    allPassed = false;
+  }
+  
+  // Test 4: Check if nt-logs has actual data
+  var logsValue = localStorage.getItem("nt-logs");
+  if (logsValue && logsValue !== "{}" && logsValue !== "[]") {
+    try {
+      var logsData = JSON.parse(logsValue);
+      var logCount = Object.keys(logsData).length;
+      addDiagnosticResult(resultsDiv, "✓ nt-logs contains data for " + logCount + " dates", true);
+    } catch(e) {
+      addDiagnosticResult(resultsDiv, "✗ nt-logs contains invalid JSON", false);
+      allPassed = false;
+    }
+  } else if (logsValue) {
+    addDiagnosticResult(resultsDiv, "⚠ nt-logs exists but is empty", "warning");
+  } else {
+    addDiagnosticResult(resultsDiv, "✗ nt-logs does not exist", false);
+    allPassed = false;
+  }
+  
+  // Test 5: Check if nt-recipes has actual data
+  var recipesValue = localStorage.getItem("nt-recipes");
+  if (recipesValue && recipesValue !== "[]") {
+    try {
+      var recipesData = JSON.parse(recipesValue);
+      addDiagnosticResult(resultsDiv, "✓ nt-recipes contains " + recipesData.length + " recipes", true);
+    } catch(e) {
+      addDiagnosticResult(resultsDiv, "✗ nt-recipes contains invalid JSON", false);
+      allPassed = false;
+    }
+  } else if (recipesValue) {
+    addDiagnosticResult(resultsDiv, "⚠ nt-recipes exists but is empty", "warning");
+  } else {
+    addDiagnosticResult(resultsDiv, "✗ nt-recipes does not exist", false);
+    allPassed = false;
+  }
+  
+  // Test 6: Check storage quota
+  var quotaUsed = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    var key = localStorage.key(i);
+    var value = localStorage.getItem(key);
+    quotaUsed += key.length + (value ? value.length : 0);
+  }
+  var quotaPct = (quotaUsed / (5 * 1024 * 1024) * 100).toFixed(1);
+  if (quotaPct < 80) {
+    addDiagnosticResult(resultsDiv, "✓ Storage usage: " + (quotaUsed/1024/1024).toFixed(2) + " MB (" + quotaPct + "% of 5MB limit)", true);
+  } else {
+    addDiagnosticResult(resultsDiv, "⚠ Storage usage is high: " + (quotaUsed/1024/1024).toFixed(2) + " MB (" + quotaPct + "%)", "warning");
+  }
+  
+  // Summary
+  var summaryDiv = document.createElement("div");
+  summaryDiv.className = "diagnostic-result " + (allPassed ? "diagnostic-ok" : "diagnostic-fail");
+  if (allPassed) {
+    summaryDiv.innerHTML = "<strong>✓ All diagnostics passed! Data persistence is working.</strong>";
+  } else {
+    summaryDiv.innerHTML = "<strong>✗ Data persistence issues detected! See details above.</strong>";
+  }
+  resultsDiv.appendChild(summaryDiv);
+  
+  log("Diagnostics complete", allPassed ? "success" : "error");
+}
+
+function addDiagnosticResult(container, message, isSuccess) {
+  var div = document.createElement("div");
+  var type = isSuccess ? "success" : (isSuccess === "warning" ? "warning" : "error");
+  div.className = type;
+  div.textContent = message;
+  container.appendChild(div);
 }
 
 function exportData() {
@@ -168,6 +331,8 @@ function clearCache() {
   button.disabled = false; button.textContent = "Clear Cache (After Export!)";
 }
 
+// Run critical key check on page load
+checkCriticalKeys();
 log("Emergency recovery tool loaded (TEST environment). Use the buttons above.", "success");
 </script>
 </body>
