@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>NutriTrack - Auto Recovery Check</title>
+<title>NutriTrack - Full Storage Diagnostic</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
 #output { background: #f0f0f0; padding: 15px; border-radius: 4px; margin-top: 20px; 
@@ -10,109 +10,94 @@ body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;
 </style>
 </head>
 <body>
-<h1>NutriTrack - Auto Recovery Check</h1>
+<h1>NutriTrack - Full Storage Diagnostic</h1>
 <p><strong>Origin:</strong> <span id="origin"></span></p>
-<p><strong>Page URL:</strong> <span id="url"></span></p>
-<h3>Auto-checking all storage on page load...</h3>
+<p><strong>Path:</strong> <span id="path"></span></p>
+<h3>Checking ALL possible storage locations...</h3>
 <h3>Output:</h3>
 <pre id="output"></pre>
 
 <script>
 var output = document.getElementById("output");
 var originEl = document.getElementById("origin");
-var urlEl = document.getElementById("url");
+var pathEl = document.getElementById("path");
 
 function log(msg) {
   output.textContent += msg + "\n";
   output.scrollTop = output.scrollHeight;
 }
 
-// Show basic info
 originEl.textContent = window.location.origin;
-urlEl.textContent = window.location.href;
+pathEl.textContent = window.location.pathname;
 
-log("=== AUTO CHECK STARTED ===");
+log("=== STORAGE DIAGNOSTIC ===");
 log("Origin: " + window.location.origin);
-log("Page: " + window.location.pathname);
+log("Path: " + window.location.pathname);
 log("");
 
-// Check localStorage
-log("--- localStorage ---");
-log("localStorage.length: " + localStorage.length);
+// The known NutriTrack storage keys
+var NT_KEYS = [
+  "nt-logs", "nt-goals", "nt-goal-overrides", "nt-custom",
+  "nt-profile", "nt-exratio", "nt-recipes", "nt-notion-status",
+  "nt-sync-queue", "nt-supplement-stacks", "nt-last-exported-at",
+  "nt-last-validated-at", "nt-display-mode", "nt-energy-unit",
+  "nt-recents", "nt-error-logs", "nt-last-online", "nt-logs-backup"
+];
+
+log("--- Checking Known NutriTrack Keys ---");
+var foundCount = 0;
+for (var i = 0; i < NT_KEYS.length; i++) {
+  var key = NT_KEYS[i];
+  var value = localStorage.getItem(key);
+  if (value !== null) {
+    log("FOUND: " + key + " = " + (value.length > 60 ? value.substring(0, 60) + "..." : value));
+    foundCount++;
+  }
+}
+if (foundCount === 0) {
+  log("No known NutriTrack keys found in localStorage");
+}
+log("");
+
+// Check ALL localStorage keys
+log("--- ALL localStorage Keys ---");
+log("Total: " + localStorage.length);
 if (localStorage.length > 0) {
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
     var value = localStorage.getItem(key);
-    var isNt = key.startsWith("nt-") ? " [NT]" : "";
-    log(key + isNt + " = " + (value ? value.substring(0, 80) + (value.length > 80 ? "..." : "") : "null"));
+    var isNt = NT_KEYS.includes(key) ? " [NT]" : "";
+    log(key + isNt + " = " + (value ? value.substring(0, 60) + (value.length > 60 ? "..." : "") : "null"));
   }
 } else {
-  log("localStorage is EMPTY");
+  log("localStorage is COMPLETELY EMPTY");
 }
 log("");
 
-// Check sessionStorage
-log("--- sessionStorage ---");
-log("sessionStorage.length: " + sessionStorage.length);
-if (sessionStorage.length > 0) {
-  for (var i = 0; i < sessionStorage.length; i++) {
-    var key = sessionStorage.key(i);
-    var value = sessionStorage.getItem(key);
-    log(key + " = " + (value ? value.substring(0, 80) : "null"));
+// Check if we can write to localStorage
+log("--- Write Test ---");
+try {
+  localStorage.setItem("nt-test-write", "test-value");
+  var readBack = localStorage.getItem("nt-test-write");
+  if (readBack === "test-value") {
+    log("Write test: SUCCESS - localStorage is writable");
+    localStorage.removeItem("nt-test-write");
+  } else {
+    log("Write test: FAILED - could not read back");
   }
-} else {
-  log("sessionStorage is EMPTY");
+} catch (e) {
+  log("Write test: FAILED - " + e.message);
 }
 log("");
 
-// Check IndexedDB
-log("--- IndexedDB ---");
-if (window.indexedDB) {
-  log("IndexedDB supported");
-  var request = indexedDB.open("nutritrack", 1);
-  request.onerror = function(e) { log("IndexedDB open error: " + e.target.error); checkDone(); };
-  request.onsuccess = function(e) {
-    var db = e.target.result;
-    log("Database opened: " + db.name + " v" + db.version);
-    log("Object stores: " + Array.from(db.objectStoreNames).join(", "));
-    
-    if (db.objectStoreNames.contains("nutritrack")) {
-      var tx = db.transaction(["nutritrack"], "readonly");
-      var store = tx.objectStore("nutritrack");
-      var getAll = store.getAll();
-      getAll.onsuccess = function(e) {
-        var records = e.target.result;
-        log("Records in nutritrack store: " + records.length);
-        if (records.length > 0) {
-          for (var i = 0; i < Math.min(records.length, 5); i++) {
-            log("  Record " + i + ": " + JSON.stringify(records[i]).substring(0, 100));
-          }
-        }
-        checkDone();
-      };
-      getAll.onerror = function(e) { log("IndexedDB read error: " + e.target.error); checkDone(); };
-    } else {
-      log("No 'nutritrack' object store found");
-      checkDone();
-    }
-  };
-  request.onblocked = function() { log("IndexedDB blocked"); checkDone(); };
-  request.onupgradeneeded = function() { log("IndexedDB needs upgrade"); checkDone(); };
-} else {
-  log("IndexedDB NOT supported");
-  checkDone();
-}
-
-function checkDone() {
-  log("");
-  log("=== AUTO CHECK COMPLETE ===");
-  log("");
-  log("If localStorage is empty, you may need to:");
-  log("1. Use the SAME browser where you saved data");
-  log("2. NOT use incognito/private mode");
-  log("3. Make sure you're on the same origin (creative-pingu.github.io)");
-  log("4. Data saved in /NutriTrack/ IS visible from /NutriTrack-test/");
-}
+// Important info
+log("=== IMPORTANT ===");
+log("If localStorage is EMPTY but you see data in the app:");
+log("1. You may be in a DIFFERENT browser profile");
+log("2. You may be in incognito/private mode");
+log("3. The app might be using a DIFFERENT storage mechanism");
+log("4. Try opening DevTools (F12) -> Application -> Storage -> Local Storage");
+log("   and check what's actually there for this origin");
 </script>
 </body>
 </html>
