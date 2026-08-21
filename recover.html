@@ -2,73 +2,117 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>NutriTrack - Recovery Debug</title>
+<title>NutriTrack - Auto Recovery Check</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
 #output { background: #f0f0f0; padding: 15px; border-radius: 4px; margin-top: 20px; 
   white-space: pre-wrap; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-button { padding: 10px 20px; margin: 5px; cursor: pointer; }
 </style>
 </head>
 <body>
-<h1>NutriTrack Recovery Debug</h1>
+<h1>NutriTrack - Auto Recovery Check</h1>
 <p><strong>Origin:</strong> <span id="origin"></span></p>
-<p><strong>localStorage.length:</strong> <span id="ls-length"></span></p>
-<div>
-  <button onclick="dumpAll()">Dump ALL localStorage</button>
-  <button onclick="dumpNt()">Dump NT Keys Only</button>
-  <button onclick="checkPrefix()">Check nt- Prefix</button>
-</div>
+<p><strong>Page URL:</strong> <span id="url"></span></p>
+<h3>Auto-checking all storage on page load...</h3>
 <h3>Output:</h3>
 <pre id="output"></pre>
 
 <script>
-// Show origin immediately
-document.getElementById("origin").textContent = window.location.origin;
-document.getElementById("ls-length").textContent = localStorage.length;
+var output = document.getElementById("output");
+var originEl = document.getElementById("origin");
+var urlEl = document.getElementById("url");
 
 function log(msg) {
-  var output = document.getElementById("output");
   output.textContent += msg + "\n";
   output.scrollTop = output.scrollHeight;
 }
 
-function dumpAll() {
-  log("=== ALL localStorage ===");
-  log("Total keys: " + localStorage.length);
+// Show basic info
+originEl.textContent = window.location.origin;
+urlEl.textContent = window.location.href;
+
+log("=== AUTO CHECK STARTED ===");
+log("Origin: " + window.location.origin);
+log("Page: " + window.location.pathname);
+log("");
+
+// Check localStorage
+log("--- localStorage ---");
+log("localStorage.length: " + localStorage.length);
+if (localStorage.length > 0) {
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
     var value = localStorage.getItem(key);
-    log(key + " = " + (value ? value.substring(0, 100) : "null"));
+    var isNt = key.startsWith("nt-") ? " [NT]" : "";
+    log(key + isNt + " = " + (value ? value.substring(0, 80) + (value.length > 80 ? "..." : "") : "null"));
   }
-  log("=== END ===");
+} else {
+  log("localStorage is EMPTY");
 }
+log("");
 
-function dumpNt() {
-  log("=== NT Keys Only ===");
-  var count = 0;
-  for (var i = 0; i < localStorage.length; i++) {
-    var key = localStorage.key(i);
-    if (key.startsWith("nt-")) {
-      var value = localStorage.getItem(key);
-      log(key + " = " + (value ? value.substring(0, 100) : "null"));
-      count++;
+// Check sessionStorage
+log("--- sessionStorage ---");
+log("sessionStorage.length: " + sessionStorage.length);
+if (sessionStorage.length > 0) {
+  for (var i = 0; i < sessionStorage.length; i++) {
+    var key = sessionStorage.key(i);
+    var value = sessionStorage.getItem(key);
+    log(key + " = " + (value ? value.substring(0, 80) : "null"));
+  }
+} else {
+  log("sessionStorage is EMPTY");
+}
+log("");
+
+// Check IndexedDB
+log("--- IndexedDB ---");
+if (window.indexedDB) {
+  log("IndexedDB supported");
+  var request = indexedDB.open("nutritrack", 1);
+  request.onerror = function(e) { log("IndexedDB open error: " + e.target.error); checkDone(); };
+  request.onsuccess = function(e) {
+    var db = e.target.result;
+    log("Database opened: " + db.name + " v" + db.version);
+    log("Object stores: " + Array.from(db.objectStoreNames).join(", "));
+    
+    if (db.objectStoreNames.contains("nutritrack")) {
+      var tx = db.transaction(["nutritrack"], "readonly");
+      var store = tx.objectStore("nutritrack");
+      var getAll = store.getAll();
+      getAll.onsuccess = function(e) {
+        var records = e.target.result;
+        log("Records in nutritrack store: " + records.length);
+        if (records.length > 0) {
+          for (var i = 0; i < Math.min(records.length, 5); i++) {
+            log("  Record " + i + ": " + JSON.stringify(records[i]).substring(0, 100));
+          }
+        }
+        checkDone();
+      };
+      getAll.onerror = function(e) { log("IndexedDB read error: " + e.target.error); checkDone(); };
+    } else {
+      log("No 'nutritrack' object store found");
+      checkDone();
     }
-  }
-  log("Found " + count + " nt- keys");
-  log("=== END ===");
+  };
+  request.onblocked = function() { log("IndexedDB blocked"); checkDone(); };
+  request.onupgradeneeded = function() { log("IndexedDB needs upgrade"); checkDone(); };
+} else {
+  log("IndexedDB NOT supported");
+  checkDone();
 }
 
-function checkPrefix() {
-  log("=== Prefix Check ===");
-  var testKey = "nt-test";
-  log("Test: does ''' + testKey + ''' start with 'nt-'? " + testKey.startsWith("nt-"));
-  log("Test: does ''' + testKey + ''' start with NT_PREFIX? " + testKey.startsWith("nt-"));
-  log("NT_PREFIX value: 'nt-'");
-  log("=== END ===");
+function checkDone() {
+  log("");
+  log("=== AUTO CHECK COMPLETE ===");
+  log("");
+  log("If localStorage is empty, you may need to:");
+  log("1. Use the SAME browser where you saved data");
+  log("2. NOT use incognito/private mode");
+  log("3. Make sure you're on the same origin (creative-pingu.github.io)");
+  log("4. Data saved in /NutriTrack/ IS visible from /NutriTrack-test/");
 }
-
-log("Recovery debug tool loaded. Origin: " + window.location.origin);
 </script>
 </body>
 </html>
