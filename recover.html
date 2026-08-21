@@ -100,7 +100,29 @@ button.secondary:hover:not(:disabled) {
 <pre id="output"></pre>
 
 <script>
-const NT_PREFIX = 'nt-';
+const STORAGE_KEYS = {
+  logs: "nt-logs",
+  goals: "nt-goals",
+  goalOverrides: "nt-goal-overrides",
+  customFoods: "nt-custom",
+  profile: "nt-profile",
+  exRatio: "nt-exratio",
+  recipes: "nt-recipes",
+  notionStatus: "nt-notion-status",
+  syncQueue: "nt-sync-queue",
+  supplementStacks: "nt-supplement-stacks",
+  lastExportedAt: "nt-last-exported-at",
+  lastValidatedAt: "nt-last-validated-at",
+  displayMode: "nt-display-mode",
+  energyUnit: "nt-energy-unit",
+  recents: "nt-recents",
+  errorLogs: "nt-error-logs",
+  lastOnline: "nt-last-online"
+};
+
+function getStorageKeys() {
+  return Object.values(STORAGE_KEYS);
+}
 
 function log(msg, type) {
   var output = document.getElementById('output');
@@ -116,14 +138,14 @@ function checkStorage() {
   var count = 0, total = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (key.startsWith(NT_PREFIX)) {
+    if (getStorageKeys().includes(key)) {
       count++;
       var value = localStorage.getItem(key);
       total += key.length + (value ? value.length : 0);
     }
   }
   var pct = (total / (5 * 1024 * 1024) * 100).toFixed(1);
-  log('localStorage: ' + count + ' NutriTrack keys, ' + (total/1024/1024).toFixed(2) + ' MB / 5 MB (' + pct + '%)', 'info');
+  log('localStorage: ' + count + ' NutriTrack keys, ' + (total/1024/1024).toFixed(2) + ' MB / 5 MB (' + pct + '%)', 'success');
   
   if (window.indexedDB) {
     checkIndexedDB();
@@ -171,7 +193,7 @@ function previewData() {
   var count = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (key.startsWith(NT_PREFIX)) {
+    if (getStorageKeys().includes(key)) {
       try { 
         var value = localStorage.getItem(key);
         previewData.localStorage[key] = value ? (value.length > 100 ? value.substring(0, 100) + '...' : value) : null;
@@ -228,7 +250,7 @@ function exportData() {
   
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
-    if (key.startsWith(NT_PREFIX)) {
+    if (getStorageKeys().includes(key)) {
       try { exportData.localStorage[key] = localStorage.getItem(key); }
       catch (e) { log('Failed to read ' + key + ': ' + e.message, 'error'); }
     }
