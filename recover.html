@@ -85,7 +85,7 @@ button.secondary:hover:not(:disabled) {
 
 <div>
   <button onclick="exportData()">Export All Data</button>
-  <button onclick="checkStorage()" class="secondary">Check Storage Usage</button>
+  <button onclick="previewData()" class="secondary">Preview Data</button><button onclick="checkStorage()" class="secondary">Check Storage Usage</button>
   <button onclick="clearCache()" class="secondary">Clear Cache (After Export!)</button>
 </div>
 
@@ -159,6 +159,57 @@ function checkIndexedDB() {
   };
 }
 
+
+function previewData() {
+  log('Previewing data that will be exported...', 'info');
+  
+  var previewData = {
+    localStorage: {},
+    indexedDB: null
+  };
+  
+  var count = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    var key = localStorage.key(i);
+    if (key.startsWith(NT_PREFIX)) {
+      try { 
+        var value = localStorage.getItem(key);
+        previewData.localStorage[key] = value ? (value.length > 100 ? value.substring(0, 100) + '...' : value) : null;
+        count++;
+      } catch (e) { 
+        log('Failed to read ' + key + ': ' + e.message, 'error'); 
+      }
+    }
+  }
+  
+  log('Found ' + count + ' localStorage keys to export', 'success');
+  
+  if (window.indexedDB) {
+    log('Checking IndexedDB...', 'info');
+    var dbRequest = indexedDB.open('nutritrack', 1);
+    dbRequest.onerror = function(e) { log('IndexedDB not available: ' + e.target.error, 'warning'); };
+    dbRequest.onsuccess = function(e) {
+      var db = e.target.result;
+      if (db.objectStoreNames.contains('nutritrack')) {
+        var tx = db.transaction(['nutritrack'], 'readonly');
+        var store = tx.objectStore('nutritrack');
+        var getAll = store.getAll();
+        getAll.onsuccess = function(e) { 
+          previewData.indexedDB = e.target.result;
+          log('Found ' + previewData.indexedDB.length + ' IndexedDB records to export', 'success');
+          log('Preview: ' + JSON.stringify(previewData, null, 2).substring(0, 500) + (JSON.stringify(previewData).length > 500 ? '...' : ''), 'info');
+        };
+        getAll.onerror = function(e) { log('IndexedDB read failed: ' + e.target.error, 'error'); };
+      } else {
+        log('No IndexedDB data found', 'info');
+      }
+    };
+  } else {
+    log('IndexedDB not supported', 'warning');
+  }
+}
+
+
 function exportData() {
   var button = event.target;
   button.disabled = true;
@@ -204,7 +255,7 @@ function completeExport(data, button) {
   var now = new Date();
   var dateStr = now.toISOString().split('T')[0];
   var timeStr = now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
-  var filename = 'nutritrack-recovery-test-' + dateStr + '-' + timeStr + '.json';
+  var filename = 'NutriTrack-Test-Recovery-' + dateStr + '-' + timeStr + '.json';
   var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
