@@ -1,0 +1,40 @@
+{
+  "name": "nutritrack-test",
+  "version": "1.0.0",
+  "description": "NutriTrack - Offline nutrition tracking PWA (TEST)",
+  "main": "NutriTrack.js",
+  "scripts": {
+    "build": "node build.js",
+    "check-paths": "node scripts/check-paths.js",
+    "validate": "node build.js && node scripts/check-paths.js && node --check NutriTrack.js",
+    "precommit": "npm run validate",
+    "prepare": "npm install"
+  },
+  "keywords": [
+    "nutrition",
+    "tracking",
+    "pwa",
+    "offline",
+    "cycling",
+    "test"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-react": "^7.24.0",
+    "husky": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Creative-pingu/NutriTrack-test.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Creative-pingu/NutriTrack-test/issues"
+  },
+  "homepage": "https://github.com/Creative-pingu/NutriTrack-test#readme"
+}
