@@ -2,41 +2,46 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>NutriTrack - Full Storage Diagnostic</title>
+<title>NutriTrack - Emergency Recovery (TEST)</title>
 <style>
-body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-#output { background: #f0f0f0; padding: 15px; border-radius: 4px; margin-top: 20px; 
-  white-space: pre-wrap; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+h1 { color: #d32f2f; border-bottom: 2px solid #d32f2f; padding-bottom: 10px; }
+button { background: #1976d2; color: white; border: none; padding: 12px 24px; border-radius: 4px; font-size: 16px; cursor: pointer; margin: 10px 10px 10px 0; }
+button:hover:not(:disabled) { background: #1565c0; }
+button:disabled { background: #cccccc; cursor: not-allowed; }
+button.secondary { background: #6c757d; }
+#output { background: white; padding: 15px; border-radius: 4px; margin-top: 20px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; border: 1px solid #ddd; }
+.success { color: #388e3c; }
+.error { color: #d32f2f; }
+.warning { color: #ff9800; }
+.info { color: #2196f3; }
+.instructions { background: #fff3cd; padding: 15px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #ffc107; }
+.summary { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-top: 20px; border-left: 4px solid #2196f3; }
 </style>
 </head>
 <body>
-<h1>NutriTrack - Full Storage Diagnostic</h1>
-<p><strong>Origin:</strong> <span id="origin"></span></p>
-<p><strong>Path:</strong> <span id="path"></span></p>
-<h3>Checking ALL possible storage locations...</h3>
-<h3>Output:</h3>
+<h1>NutriTrack - Emergency Recovery (TEST)</h1>
+<div class="instructions">
+  <strong>Emergency Mode (TEST):</strong> This page works even if the main app is broken.
+  <p>Use this to export your data before clearing cache or reinstalling.</p>
+</div>
+<div>
+  <button onclick="exportData()">Export All Data</button>
+  <button onclick="listAllKeys()" class="secondary">List ALL Keys</button>
+  <button onclick="checkStorage()" class="secondary">Check Storage Usage</button>
+  <button onclick="clearCache()" class="secondary">Clear Cache (After Export!)</button>
+</div>
+<h3>Quick Instructions:</h3>
+<ol>
+  <li>Click <strong>"List ALL Keys"</strong> to verify your data is here</li>
+  <li>Click <strong>"Export All Data"</strong> to download a JSON backup</li>
+  <li>Save the file - filename includes date and app name for easy identification</li>
+</ol>
+<h3>Output Log:</h3>
 <pre id="output"></pre>
 
 <script>
-var output = document.getElementById("output");
-var originEl = document.getElementById("origin");
-var pathEl = document.getElementById("path");
-
-function log(msg) {
-  output.textContent += msg + "\n";
-  output.scrollTop = output.scrollHeight;
-}
-
-originEl.textContent = window.location.origin;
-pathEl.textContent = window.location.pathname;
-
-log("=== STORAGE DIAGNOSTIC ===");
-log("Origin: " + window.location.origin);
-log("Path: " + window.location.pathname);
-log("");
-
-// The known NutriTrack storage keys
-var NT_KEYS = [
+const NT_KEYS = [
   "nt-logs", "nt-goals", "nt-goal-overrides", "nt-custom",
   "nt-profile", "nt-exratio", "nt-recipes", "nt-notion-status",
   "nt-sync-queue", "nt-supplement-stacks", "nt-last-exported-at",
@@ -44,60 +49,126 @@ var NT_KEYS = [
   "nt-recents", "nt-error-logs", "nt-last-online", "nt-logs-backup"
 ];
 
-log("--- Checking Known NutriTrack Keys ---");
-var foundCount = 0;
-for (var i = 0; i < NT_KEYS.length; i++) {
-  var key = NT_KEYS[i];
-  var value = localStorage.getItem(key);
-  if (value !== null) {
-    log("FOUND: " + key + " = " + (value.length > 60 ? value.substring(0, 60) + "..." : value));
-    foundCount++;
-  }
+function log(msg, type) {
+  var output = document.getElementById("output");
+  var ts = new Date().toLocaleTimeString();
+  var cls = type === "error" ? "error" : type === "warning" ? "warning" : type === "success" ? "success" : type === "info" ? "info" : "";
+  var span = document.createElement("span");
+  span.className = cls;
+  span.textContent = "[" + ts + "] [" + type.toUpperCase() + "] " + msg;
+  output.appendChild(span);
+  output.appendChild(document.createElement("br"));
+  output.scrollTop = output.scrollHeight;
 }
-if (foundCount === 0) {
-  log("No known NutriTrack keys found in localStorage");
-}
-log("");
 
-// Check ALL localStorage keys
-log("--- ALL localStorage Keys ---");
-log("Total: " + localStorage.length);
-if (localStorage.length > 0) {
+function isNutriTrackKey(key) {
+  return NT_KEYS.includes(key) || key.startsWith("nt-");
+}
+
+function listAllKeys() {
+  log("Listing ALL localStorage keys...", "info");
+  log("Total keys: " + localStorage.length, "info");
+  var ntCount = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
     var value = localStorage.getItem(key);
-    var isNt = NT_KEYS.includes(key) ? " [NT]" : "";
-    log(key + isNt + " = " + (value ? value.substring(0, 60) + (value.length > 60 ? "..." : "") : "null"));
+    var isNt = isNutriTrackKey(key) ? " [NT]" : "";
+    log(key + isNt + " = " + (value ? value.substring(0, 80) + (value.length > 80 ? "..." : "") : "null"), "info");
+    if (isNutriTrackKey(key)) ntCount++;
   }
-} else {
-  log("localStorage is COMPLETELY EMPTY");
+  log("Found " + ntCount + " NutriTrack keys", "success");
 }
-log("");
 
-// Check if we can write to localStorage
-log("--- Write Test ---");
-try {
-  localStorage.setItem("nt-test-write", "test-value");
-  var readBack = localStorage.getItem("nt-test-write");
-  if (readBack === "test-value") {
-    log("Write test: SUCCESS - localStorage is writable");
-    localStorage.removeItem("nt-test-write");
-  } else {
-    log("Write test: FAILED - could not read back");
+function checkStorage() {
+  log("Checking storage usage...", "info");
+  var count = 0, total = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    var key = localStorage.key(i);
+    if (isNutriTrackKey(key)) {
+      count++;
+      var value = localStorage.getItem(key);
+      total += key.length + (value ? value.length : 0);
+    }
   }
-} catch (e) {
-  log("Write test: FAILED - " + e.message);
+  var pct = (total / (5 * 1024 * 1024) * 100).toFixed(1);
+  log("localStorage: " + count + " NutriTrack keys, " + (total/1024/1024).toFixed(2) + " MB / 5 MB (" + pct + "%)", "success");
 }
-log("");
 
-// Important info
-log("=== IMPORTANT ===");
-log("If localStorage is EMPTY but you see data in the app:");
-log("1. You may be in a DIFFERENT browser profile");
-log("2. You may be in incognito/private mode");
-log("3. The app might be using a DIFFERENT storage mechanism");
-log("4. Try opening DevTools (F12) -> Application -> Storage -> Local Storage");
-log("   and check what's actually there for this origin");
+function exportData() {
+  var button = event.target;
+  button.disabled = true;
+  button.textContent = "Exporting...";
+  log("Starting export...", "info");
+  
+  var exportData = {
+    timestamp: new Date().toISOString(),
+    version: "1.0",
+    userAgent: navigator.userAgent,
+    url: window.location.href,
+    environment: "TEST",
+    appName: "NutriTrack Test",
+    localStorage: {}
+  };
+  
+  var count = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    var key = localStorage.key(i);
+    if (isNutriTrackKey(key)) {
+      try {
+        exportData.localStorage[key] = localStorage.getItem(key);
+        count++;
+      } catch (e) {
+        log("Failed to read " + key + ": " + e.message, "error");
+      }
+    }
+  }
+  
+  log("Exported " + count + " localStorage keys", "success");
+  
+  // Generate filename with app name and date
+  var now = new Date();
+  var dateStr = now.toISOString().split("T")[0];
+  var timeStr = now.toISOString().split("T")[1].split(".")[0].replace(/:/g, "-");
+  var filename = "NutriTrack-Test-Recovery-" + dateStr + "-" + timeStr + ".json";
+  
+  var blob = new Blob([JSON.stringify(exportData, null, 2)], {type: "application/json"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename; a.style.display = "none";
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { 
+    document.body.removeChild(a); 
+    URL.revokeObjectURL(url); 
+  }, 100);
+  
+  log("EXPORT COMPLETE! File: " + filename, "success");
+  log("Keys exported: " + count, "success");
+  button.disabled = false; button.textContent = "Export All Data";
+}
+
+function clearCache() {
+  if (!confirm("WARNING: This will clear ALL NutriTrack data from this browser. Make sure you have exported your data first! Click OK to continue.")) {
+    return;
+  }
+  var button = event.target;
+  button.disabled = true;
+  button.textContent = "Clearing...";
+  log("Clearing all NutriTrack data...", "warning");
+  
+  var clearedCount = 0;
+  for (var i = 0; i < localStorage.length; i++) {
+    var key = localStorage.key(i);
+    if (isNutriTrackKey(key)) {
+      localStorage.removeItem(key);
+      clearedCount++;
+      i--;
+    }
+  }
+  log("Cleared " + clearedCount + " localStorage keys", "success");
+  button.disabled = false; button.textContent = "Clear Cache (After Export!)";
+}
+
+log("Emergency recovery tool loaded (TEST environment). Use the buttons above.", "success");
 </script>
 </body>
 </html>
