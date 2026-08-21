@@ -28,19 +28,10 @@ button {
   margin: 10px 10px 10px 0;
   transition: background 0.2s;
 }
-button:hover:not(:disabled) { 
-  background: #1565c0; 
-}
-button:disabled { 
-  background: #cccccc; 
-  cursor: not-allowed;
-}
-button.secondary { 
-  background: #6c757d; 
-}
-button.secondary:hover:not(:disabled) { 
-  background: #5a6268; 
-}
+button:hover:not(:disabled) { background: #1565c0; }
+button:disabled { background: #cccccc; cursor: not-allowed; }
+button.secondary { background: #6c757d; }
+button.secondary:hover:not(:disabled) { background: #5a6268; }
 #output { 
   background: white; 
   padding: 15px; 
@@ -58,32 +49,16 @@ button.secondary:hover:not(:disabled) {
 .warning { color: #ff9800; }
 .info { color: #2196f3; }
 .debug { color: #9c27b0; }
-
-.instructions {
-  background: #fff3cd;
-  padding: 15px;
-  border-radius: 4px;
-  margin: 20px 0;
-  border-left: 4px solid #ffc107;
-}
-
-.summary {
-  background: #e3f2fd;
-  padding: 15px;
-  border-radius: 4px;
-  margin-top: 20px;
-  border-left: 4px solid #2196f3;
-}
+.instructions { background: #fff3cd; padding: 15px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #ffc107; }
+.summary { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-top: 20px; border-left: 4px solid #2196f3; }
 </style>
 </head>
 <body>
 <h1>NutriTrack - Emergency Recovery (TEST)</h1>
-
 <div class="instructions">
-  <strong>⚠️ Emergency Mode (TEST):</strong> This page works even if the main app is broken.
+  <strong>Emergency Mode (TEST):</strong> This page works even if the main app is broken.
   <p>Use this to export your data before clearing cache or reinstalling.</p>
 </div>
-
 <div>
   <button onclick="exportData()">Export All Data</button>
   <button onclick="previewData()" class="secondary">Preview Data</button>
@@ -91,14 +66,12 @@ button.secondary:hover:not(:disabled) {
   <button onclick="listAllKeys()" class="secondary">List ALL Keys (Debug)</button>
   <button onclick="clearCache()" class="secondary">Clear Cache (After Export!)</button>
 </div>
-
 <h3>Quick Instructions:</h3>
 <ol>
   <li>Click <strong>"List ALL Keys (Debug)"</strong> first to see what data exists</li>
   <li>Click <strong>"Preview Data"</strong> to see what will be exported</li>
   <li>Click <strong>"Export All Data"</strong> to download a JSON backup</li>
 </ol>
-
 <h3>Output Log:</h3>
 <pre id="output"></pre>
 
@@ -109,15 +82,17 @@ function log(msg, type) {
   var output = document.getElementById("output");
   var ts = new Date().toLocaleTimeString();
   var cls = type === "error" ? "error" : type === "warning" ? "warning" : type === "success" ? "success" : type === "info" ? "info" : type === "debug" ? "debug" : "";
-  output.innerHTML += "<span class="" + cls + "">[" + ts + "] [" + type.toUpperCase() + "] " + msg + "</span><br>";
+  var span = document.createElement("span");
+  span.className = cls;
+  span.textContent = "[" + ts + "] [" + type.toUpperCase() + "] " + msg;
+  output.appendChild(span);
+  output.appendChild(document.createElement("br"));
   output.scrollTop = output.scrollHeight;
 }
 
-// Debug function to list ALL localStorage keys
 function listAllKeys() {
   log("Listing ALL localStorage keys...", "debug");
   log("Total keys in localStorage: " + localStorage.length, "debug");
-  
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
     var value = localStorage.getItem(key);
@@ -125,7 +100,6 @@ function listAllKeys() {
     var isNt = key.startsWith(NT_PREFIX) ? " [NT]" : "";
     log(key + isNt + " = " + valuePreview, "debug");
   }
-  
   log("Done listing keys", "debug");
 }
 
@@ -135,7 +109,6 @@ function isNutriTrackKey(key) {
 
 function checkStorage() {
   log("Checking storage usage...", "info");
-  
   var count = 0, total = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
@@ -147,13 +120,11 @@ function checkStorage() {
   }
   var pct = (total / (5 * 1024 * 1024) * 100).toFixed(1);
   log("localStorage: " + count + " NutriTrack keys, " + (total/1024/1024).toFixed(2) + " MB / 5 MB (" + pct + "%)", "success");
-  
   if (window.indexedDB) {
     checkIndexedDB();
   } else {
     log("IndexedDB not supported in this browser", "warning");
   }
-  
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
       if (registrations.length > 0) {
@@ -184,12 +155,7 @@ function checkIndexedDB() {
 
 function previewData() {
   log("Previewing data that will be exported...", "info");
-  
-  var previewData = {
-    localStorage: {},
-    indexedDB: null
-  };
-  
+  var previewData = { localStorage: {}, indexedDB: null };
   var count = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
@@ -203,13 +169,10 @@ function previewData() {
       }
     }
   }
-  
   log("Found " + count + " localStorage keys to export", "success");
-  
   if (count > 0) {
     log("Preview: " + JSON.stringify(previewData).substring(0, 500) + (JSON.stringify(previewData).length > 500 ? "..." : ""), "info");
   }
-  
   if (window.indexedDB) {
     log("Checking IndexedDB...", "info");
     var dbRequest = indexedDB.open("nutritrack", 1);
@@ -239,7 +202,6 @@ function exportData() {
   button.disabled = true;
   button.textContent = "Exporting...";
   log("Starting export...", "info");
-  
   var exportData = {
     timestamp: new Date().toISOString(),
     version: "1.0",
@@ -250,7 +212,6 @@ function exportData() {
     localStorage: {},
     indexedDB: null
   };
-  
   log("Exporting localStorage data...", "info");
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
@@ -263,7 +224,6 @@ function exportData() {
     }
   }
   log("Exported " + Object.keys(exportData.localStorage).length + " localStorage keys", "success");
-  
   if (window.indexedDB) {
     log("Exporting IndexedDB data...", "info");
     var dbRequest = indexedDB.open("nutritrack", 1);
@@ -302,14 +262,12 @@ function completeExport(data, button) {
   var dateStr = now.toISOString().split("T")[0];
   var timeStr = now.toISOString().split("T")[1].split(".")[0].replace(/:/g, "-");
   var filename = "NutriTrack-Test-Recovery-" + dateStr + "-" + timeStr + ".json";
-  
   var blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
   a.href = url; a.download = filename; a.style.display = "none";
   document.body.appendChild(a); a.click();
   setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-  
   log("EXPORT COMPLETE! File: " + filename, "success");
   log("localStorage keys: " + Object.keys(data.localStorage).length, "success");
   log("IndexedDB records: " + (data.indexedDB ? data.indexedDB.length : 0), "success");
@@ -317,15 +275,13 @@ function completeExport(data, button) {
 }
 
 function clearCache() {
-  if (!confirm("⚠️ WARNING: This will clear ALL NutriTrack data from this browser.\n\nMake sure you have exported your data first!\n\nClick OK to continue.")) {
+  if (!confirm("WARNING: This will clear ALL NutriTrack data from this browser. Make sure you have exported your data first! Click OK to continue.")) {
     return;
   }
-  
   var button = event.target;
   button.disabled = true;
   button.textContent = "Clearing...";
   log("Clearing all NutriTrack data...", "warning");
-  
   var clearedCount = 0;
   for (var i = 0; i < localStorage.length; i++) {
     var key = localStorage.key(i);
@@ -336,21 +292,11 @@ function clearCache() {
     }
   }
   log("Cleared " + clearedCount + " localStorage keys", "success");
-  
   if (window.indexedDB) {
     var deleteRequest = indexedDB.deleteDatabase("nutritrack");
-    deleteRequest.onsuccess = function() {
-      log("Cleared IndexedDB database", "success");
-      finishClear(button);
-    };
-    deleteRequest.onerror = function(e) {
-      log("Failed to clear IndexedDB: " + e.target.error, "error");
-      finishClear(button);
-    };
-    deleteRequest.onblocked = function() {
-      log("IndexedDB delete blocked (close all tabs first)", "warning");
-      finishClear(button);
-    };
+    deleteRequest.onsuccess = function() { log("Cleared IndexedDB database", "success"); finishClear(button); };
+    deleteRequest.onerror = function(e) { log("Failed to clear IndexedDB: " + e.target.error, "error"); finishClear(button); };
+    deleteRequest.onblocked = function() { log("IndexedDB delete blocked (close all tabs first)", "warning"); finishClear(button); };
   } else {
     finishClear(button);
   }
@@ -359,16 +305,10 @@ function clearCache() {
 function finishClear(button) {
   if ("caches" in window) {
     caches.keys().then(function(cacheNames) {
-      var nutritrackCaches = cacheNames.filter(function(name) {
-        return name.includes("nutritrack");
-      });
-      
+      var nutritrackCaches = cacheNames.filter(function(name) { return name.includes("nutritrack"); });
       if (nutritrackCaches.length > 0) {
-        Promise.all(nutritrackCaches.map(function(cacheName) {
-          return caches.delete(cacheName);
-        })).then(function() {
-          log("Cleared " + nutritrackCaches.length + " cache(s)", "success");
-          doneClear(button);
+        Promise.all(nutritrackCaches.map(function(cacheName) { return caches.delete(cacheName); })).then(function() {
+          log("Cleared " + nutritrackCaches.length + " cache(s)", "success"); doneClear(button);
         });
       } else {
         doneClear(button);
@@ -382,16 +322,14 @@ function finishClear(button) {
 function doneClear(button) {
   log("Cache clearing complete. You may need to reload the page.", "success");
   button.disabled = false; button.textContent = "Clear Cache (After Export!)";
-  
   setTimeout(function() {
     var summaryEl = document.createElement("div");
     summaryEl.className = "summary";
-    summaryEl.innerHTML = "<strong>✓ Cache Cleared</strong><br>All NutriTrack data has been removed from this browser.<br>You can now safely reload or close this page.";
+    summaryEl.innerHTML = "Cache Cleared: All NutriTrack data has been removed from this browser.";
     document.body.appendChild(summaryEl);
   }, 100);
 }
 
-// Initialize
 log("Emergency recovery tool loaded (TEST environment). Use the buttons above to export or check your data.", "success");
 </script>
 </body>
