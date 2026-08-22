@@ -6,7 +6,7 @@ const PRECACHE_ASSETS = [
   "/NutriTrack-test/foods.json",
   "/NutriTrack-test/icons/icon-192.png",
   "/NutriTrack-test/icons/icon-512.png",
-  "/NutriTrack-test/icons/apple-touch-icon.png",
+  "/NutriTrack-test/icons/apple-touch-icon.png"
 ];
 
 // CDN scripts the app loads at bootstrap (React, ReactDOM).

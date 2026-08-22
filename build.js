@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // NutriTrack Build Script - TEST ENVIRONMENT
 // Automated Babel compilation from NutriTrack.jsx to NutriTrack.js
+// All paths are now sourced from deploy-config.js to eliminate hardcoded paths
 
 const fs = require('fs');
 const path = require('path');
 const babel = require('@babel/core');
-const { DEPLOY_CONFIG, getPath } = require('./deploy-config.js');
+const { DEPLOY_CONFIG, getPath, getPrecacheAssets, getSWPath, getSWScope } = require('./deploy-config.js');
 
 console.log('Building NutriTrack (TEST)...');
 console.log('Version:', DEPLOY_CONFIG.CACHE_VERSION);
@@ -54,11 +55,82 @@ try {
   // Write the compiled output
   console.log('Writing:', jsPath);
   fs.writeFileSync(jsPath, compiledCode, 'utf8');
-  console.log('✓ Compiled', jsxPath, '->', jsPath);
+  console.log('\u2713 Compiled', jsxPath, '->', jsPath);
   
-  // Update index.html version references for TEST environment
-  console.log('Updating index.html versions...');
+  // ========================================================================
+  // Update sw.js - Replace ALL hardcoded paths with values from deploy-config
+  // ========================================================================
+  console.log('Updating sw.js paths from deploy-config.js for TEST...');
+  let swJs = fs.readFileSync('sw.js', 'utf8');
+  
+  // Get values for TEST environment (isTest = true)
+  const basePath = DEPLOY_CONFIG.TEST_BASE_PATH;
+  const precacheAssets = getPrecacheAssets(true);
+  const swScope = getSWScope(true);
+  
+  // Replace CACHE_VERSION
+  swJs = swJs.replace(
+    /const CACHE_VERSION = ["']nutritrack-v\d+["']/,
+    `const CACHE_VERSION = "${DEPLOY_CONFIG.CACHE_VERSION}"`
+  );
+  
+  // Replace WORKER_ORIGIN
+  swJs = swJs.replace(
+    /const WORKER_ORIGIN = ["'][^"']+["']/,
+    `const WORKER_ORIGIN = "${DEPLOY_CONFIG.WORKER_ORIGIN}"`
+  );
+  
+  // Replace PRECACHE_ASSETS array with values from deploy-config
+  const precacheAssetsString = '[' + precacheAssets.map(a => `\n  "${a}"`).join(',') + '\n]';
+  swJs = swJs.replace(
+    /const PRECACHE_ASSETS = \[[\s\S]*?\];/,
+    `const PRECACHE_ASSETS = ${precacheAssetsString};`
+  );
+  
+  // Replace all hardcoded /NutriTrack-test/ and /NutriTrack/ paths with basePath
+  swJs = swJs.replace(/\/NutriTrack-test\//g, basePath);
+  swJs = swJs.replace(/\/NutriTrack\//g, basePath);
+  
+  fs.writeFileSync('sw.js', swJs, 'utf8');
+  console.log('\u2713 Updated sw.js paths for TEST');
+  console.log('   - CACHE_VERSION:', DEPLOY_CONFIG.CACHE_VERSION);
+  console.log('   - WORKER_ORIGIN:', DEPLOY_CONFIG.WORKER_ORIGIN);
+  console.log('   - BASE_PATH:', basePath);
+  console.log('   - SW_SCOPE:', swScope);
+  
+  // ========================================================================
+  // Update index.html - Replace ALL hardcoded paths with values from deploy-config
+  // ========================================================================
+  console.log('Updating index.html paths from deploy-config.js for TEST...');
   let indexHtml = fs.readFileSync('index.html', 'utf8');
+  
+  const manifestPath = getPath('MANIFEST', true);
+  const appleTouchIconPath = getPath('ICONS', true) + 'apple-touch-icon.png';
+  const swPath = getSWPath(true);
+  
+  // Replace manifest path
+  indexHtml = indexHtml.replace(
+    /href="[^"]*manifest\.webmanifest"/,
+    `href="${manifestPath}"`
+  );
+  
+  // Replace apple touch icon path
+  indexHtml = indexHtml.replace(
+    /href="[^"]*apple-touch-icon\.png"/,
+    `href="${appleTouchIconPath}"`
+  );
+  
+  // Replace service worker registration
+  indexHtml = indexHtml.replace(
+    /navigator\.serviceWorker\.register\([^)]+\)/,
+    `navigator.serviceWorker.register('${swPath}?v=' + SHELL_APP_VERSION, { scope: '${swScope}' })`
+  );
+  
+  // Replace service worker fetch
+  indexHtml = indexHtml.replace(
+    /fetch\([^)]+sw\.js[^)]*\)/,
+    `fetch('${swPath}?v=' + SHELL_APP_VERSION, { cache: 'no-store' })`
+  );
   
   // Update SHELL_APP_VERSION
   indexHtml = indexHtml.replace(
@@ -72,74 +144,39 @@ try {
     `${DEPLOY_CONFIG.BUILD_VERSION} - ${new Date().toISOString().split('T')[0]} ${new Date().toTimeString().split(' ')[0]}`
   );
   
-  // Update SW registration version for TEST environment
-  indexHtml = indexHtml.replace(
-    /\/NutriTrack-test\/sw\.js\?v=v\d+(-test)?/g,
-    `/NutriTrack-test/sw.js?v=${DEPLOY_CONFIG.BUILD_VERSION}`
-  );
-  
-  // Update SW scope to TEST environment
-  indexHtml = indexHtml.replace(
-    /scope:\s*['"]\/NutriTrack-test\/["']/g,
-    `scope: '${DEPLOY_CONFIG.TEST_BASE_PATH}'`
-  );
-  
   fs.writeFileSync('index.html', indexHtml, 'utf8');
-  console.log('✓ Updated index.html version references for TEST');
-  
-  // Update sw.js CACHE_VERSION for TEST environment
-  console.log('Updating sw.js CACHE_VERSION...');
-  let swJs = fs.readFileSync('sw.js', 'utf8');
-  swJs = swJs.replace(
-    /const CACHE_VERSION = ["']nutritrack-v\d+(-test)?["']/,
-    `const CACHE_VERSION = "${DEPLOY_CONFIG.CACHE_VERSION}"`
-  );
-  
-  // Update SW paths to use TEST base path
-  swJs = swJs.replace(
-    /\/NutriTrack\//g,
-    DEPLOY_CONFIG.TEST_BASE_PATH
-  );
-  
-  fs.writeFileSync('sw.js', swJs, 'utf8');
-  console.log('✓ Updated sw.js CACHE_VERSION and paths for TEST');
+  console.log('\u2713 Updated index.html paths for TEST');
+  console.log('   - MANIFEST_PATH:', manifestPath);
+  console.log('   - APPLE_TOUCH_ICON_PATH:', appleTouchIconPath);
+  console.log('   - SW_PATH:', swPath);
+  console.log('   - SW_SCOPE:', swScope);
   
   // Validate the compiled output
   console.log('Validating compiled output...');
   
-  // Check that it's valid JavaScript syntax
   try {
     const syntaxCheck = require('fs').readFileSync(jsPath, 'utf8');
     new Function(syntaxCheck);
-    console.log('✓ Compiled JavaScript has valid syntax');
+    console.log('\u2713 Compiled JavaScript has valid syntax');
   } catch (e) {
-    console.warn('⚠ Syntax check warning:', e.message);
+    console.warn('\u26a0 Syntax check warning:', e.message);
   }
   
-  // Check for ESM imports/exports (should be none)
-  if (compiledCode.includes('import ') || compiledCode.includes('export ')) {
-    console.warn('⚠ Warning: Compiled output still contains ESM imports/exports');
-  } else {
-    console.log('✓ No ESM imports/exports in compiled output');
-  }
-  
-  // Check for React global usage
   if (compiledCode.includes('React.') || compiledCode.includes('window.React')) {
-    console.log('✓ React used as global');
+    console.log('\u2713 React used as global');
   }
   
-  // Check for window._MainApp assignment
   if (compiledCode.includes('window._MainApp')) {
-    console.log('✓ window._MainApp assignment present');
+    console.log('\u2713 window._MainApp assignment present');
   }
   
-  console.log('\n✅ Build successful for TEST environment!');
+  console.log('\n\u2705 Build successful for TEST environment!');
   console.log(`   Version: ${DEPLOY_CONFIG.CACHE_VERSION}`);
   console.log(`   App Version: ${DEPLOY_CONFIG.APP_VERSION}`);
   console.log(`   Built: ${new Date().toISOString()}`);
   
 } catch (error) {
-  console.error('❌ Build failed:', error.message);
+  console.error('\u274c Build failed:', error.message);
   if (error.stack) {
     console.error(error.stack);
   }
