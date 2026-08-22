@@ -125,7 +125,7 @@
         // newest index.html always loads; code updates then propagate through
         // the SW's own lifecycle (updatefound -> controllerchange).
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register(/NutriTrack-test/sw.js + '?v=' + SHELL_APP_VERSION, { scope: /NutriTrack-test/ })
+            navigator.serviceWorker.register('/NutriTrack-test/sw.js?v=' + SHELL_APP_VERSION, { scope: '/NutriTrack-test/' })
                 .then(function(reg) {
                     document.getElementById('sw-status').textContent = 'SW: ' + SHELL_APP_VERSION + ' active';
                     // Expose the ready promise so NutriTrack.jsx's Phase 6d
