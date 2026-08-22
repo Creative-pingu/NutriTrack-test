@@ -1,6 +1,6 @@
 // NutriTrack Service Worker
-// PLACEHOLDERS below are replaced by build.js from deploy-config.js
 const CACHE_VERSION = "nutritrack-v75-test";
+
 const BASE_PATH = "/NutriTrack-test/";
 
 const PRECACHE_ASSETS = [
