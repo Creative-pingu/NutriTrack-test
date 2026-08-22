@@ -1,5 +1,7 @@
 // NutriTrack Service Worker
+// PLACEHOLDERS below are replaced by build.js from deploy-config.js
 const CACHE_VERSION = "nutritrack-v75-test";
+const BASE_PATH = "/NutriTrack-test/";
 
 const PRECACHE_ASSETS = [
   "/NutriTrack-test/NutriTrack.js",
@@ -12,12 +14,9 @@ const PRECACHE_ASSETS = [
 // CDN scripts the app loads at bootstrap (React, ReactDOM).
 // These are cross-origin; precaching them makes the app boot offline.
 // Keep these in sync with the <script src> URLs in index.html.
-const CDN_ASSETS = [
-  "https://unpkg.com/react@18/umd/react.production.min.js",
-  "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
-  // Babel is no longer loaded at runtime: JSX is pre-compiled to
-  // NutriTrack.js at build time (Phase 7b), removing the dynamic code-evaluation XSS vector.
-];
+// Phase 6m-4: CDN assets removed from PRECACHE_ASSETS (cache.addAll is all-or-nothing
+// and unpkg redirects cause failures). CDN scripts cache naturally in browser.
+const CDN_ASSETS = [];
 
 const WORKER_ORIGIN = "https://nutritrack-proxy.nickkropf.workers.dev";
 
@@ -63,7 +62,7 @@ self.addEventListener("fetch", event => {
   // page offline ("not connected to the internet"); respondWith with a
   // cache fallback is what makes the PWA work offline.
   if (request.method === "GET" &&
-      (url.pathname === "/NutriTrack-test/" || url.pathname === "/NutriTrack-test/index.html")) {
+      (url.pathname === BASE_PATH || url.pathname === BASE_PATH + "index.html")) {
     event.respondWith(
       fetch(request)
         .then(response => {
@@ -73,8 +72,8 @@ self.addEventListener("fetch", event => {
               // Cache under the request URL and the canonical index.html
               // path so either form matches on an offline reload.
               cache.put(request, clone);
-              if (url.pathname === "/NutriTrack-test/") {
-                cache.put(self.location.origin + "/index.html", response.clone());
+              if (url.pathname === BASE_PATH) {
+                cache.put(self.location.origin + BASE_PATH + "index.html", response.clone());
               }
             });
           }
@@ -82,7 +81,7 @@ self.addEventListener("fetch", event => {
         })
         .catch(() =>
           caches.match(request, { ignoreSearch: true }).then(cached =>
-            cached || caches.match("/NutriTrack-test/index.html", { ignoreSearch: true })
+            cached || caches.match(BASE_PATH + "index.html", { ignoreSearch: true })
           )
         )
     );
@@ -122,9 +121,9 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if (url.pathname === "/NutriTrack-test/foods.json") {
+  if (url.pathname === BASE_PATH + "foods.json") {
     // Network-first with cache fallback. ignoreSearch: true so the
-    // precached bare path (/NutriTrack-test/foods.json, no ?v=3) is matched
+    // precached bare path (BASE_PATHfoods.json, no ?v=3) is matched
     // when the network fetch fails offline.
     event.respondWith(
       fetch(request)
