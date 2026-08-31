@@ -464,6 +464,103 @@ const STORAGE_KEYS = {
 const STORAGE_WARN_PCT  = 70; // yellow above this
 const STORAGE_CRIT_PCT  = 90; // red above this
 
+// STORAGE HARD LIMIT (Phase 11.7)
+const STORAGE_HARD_LIMIT_BYTES = 1 * 1024 * 1024; // 1MB
+const STORAGE_SOFT_LIMIT_BYTES = 5 * 1024 * 1024; // 5MB
+
+// EXPORT SCHEMA VERSION (Phase 11.7)
+const EXPORT_SCHEMA_VERSION = "1.1";
+
+// CHECKSUM HELPERS (Phase 11.7)
+async function computeChecksum(dataString) {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(dataString);
+    const hashBuffer = await crypto.subtle.digest(\'SHA-256\', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, \'0\')).join(\'\');
+  } catch {
+    let hash = 0;
+    for (let i = 0; i < dataString.length; i++) {
+      const char = dataString.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return \'fallback-\' + Math.abs(hash).toString(16);
+  }
+}
+
+
+// IMPORT VALIDATION (Phase 11.7)
+function validateImportSchema(data, expectedVersion = EXPORT_SCHEMA_VERSION) {
+  if (!data || typeof data !== \'object\') {
+    return { valid: false, error: \'Invalid data: not an object\' };
+  }
+  if (data.version !== expectedVersion) {
+    return {
+      valid: false,
+      error: \'Schema version mismatch: expected \' + expectedVersion + \', got \' + (data.version || \'unknown\')
+    };
+  }
+  const requiredFields = [\'version\', \'exported_at\', \'logs\', \'recipes\', \'customFoods\', \'profile\', \'exRatio\'];
+  for (const field of requiredFields) {
+    if (data[field] === undefined) {
+      return { valid: false, error: \'Missing required field: \' + field };
+    }
+  }
+  if (typeof data.logs !== \'object\' || Array.isArray(data.logs)) {
+    return { valid: false, error: \'logs must be an object (date-keyed)\' };
+  }
+  if (!Array.isArray(data.recipes)) {
+    return { valid: false, error: \'recipes must be an array\' };
+  }
+  if (!Array.isArray(data.customFoods)) {
+    return { valid: false, error: \'customFoods must be an array\' };
+  }
+  if (typeof data.profile !== \'object\' || Array.isArray(data.profile)) {
+    return { valid: false, error: \'profile must be an object\' };
+  }
+  if (typeof data.exRatio !== \'object\') {
+    return { valid: false, error: \'exRatio must be an object\' };
+  }
+  return { valid: true };
+}
+
+// SAFE RESTORE (Phase 11.7)
+function previewImport(data) {
+  const validation = validateImportSchema(data);
+  if (!validation.valid) {
+    return { ...validation, preview: null };
+  }
+  return {
+    valid: true,
+    preview: {
+      logCount: Object.values(data.logs || {}).flat().length,
+      recipeCount: data.recipes?.length || 0,
+      customFoodCount: data.customFoods?.length || 0,
+      exportedAt: data.exported_at,
+    },
+    warnings: [],
+  };
+}
+
+function performRestore(data, setStateFunctions) {
+  const { setLogs, setRecipes, setCustomFoods, setProfile, setExRatio, setSupplementStacks, setGoalOverrides } = setStateFunctions;
+  const validation = validateImportSchema(data);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+  setLogs(data.logs || {});
+  setRecipes(data.recipes || []);
+  setCustomFoods(data.customFoods || []);
+  setProfile(data.profile || {});
+  setExRatio(data.exRatio || {});
+  setSupplementStacks(data.supplementStacks || []);
+  setGoalOverrides(data.goalOverrides || {});
+  return { success: true, message: \'Data restored successfully\' };
+}
+
+
 // ── CENTRALIZED ERROR HANDLING (Phase 8 / A2 / R8) ────────────────────────────
 // Translates technical error messages (worker_502: notion_unreachable,
 // network: fetch failed, foods.json fetch failed: 404, ...) into short,
@@ -557,8 +654,19 @@ async function loadData(key, fallback) {
     return PARSE_ERROR;
   }
 }
+// ENHANCED STORAGE WRITE WITH LIMIT CHECK (Phase 11.7)
 async function saveData(key, val) {
   try {
+    const currentUsage = measureLocalStorageBytes();
+    const newDataSize = JSON.stringify(val).length + key.length;
+    const estimatedNewUsage = (currentUsage || 0) + newDataSize;
+    if (estimatedNewUsage > STORAGE_HARD_LIMIT_BYTES) {
+      console.error('[NutriTrack] Write blocked: would exceed hard limit');
+      throw new Error('STORAGE_FULL: Cannot save data - storage limit reached. Please export and clear old data.');
+    }
+    if (estimatedNewUsage > STORAGE_SOFT_LIMIT_BYTES * 0.95) {
+      console.warn('[NutriTrack] Storage approaching soft limit');
+    }
     localStorage.setItem(key, JSON.stringify(val));
     console.log("[NutriTrack] Saved successfully:", key, "(" + (JSON.stringify(val)?.length || 0) + " bytes)");
     
@@ -841,6 +949,14 @@ export default function NutriTrack() {
   // Export
   const [lastExportedAt, setLastExportedAt] = useState(null);
   const [exportConfirm,  setExportConfirm]  = useState(null); // null or { csvRows, jsonEntries, dateRange }
+  
+  // Import/Recovery (Phase 11.7)
+  const [importFile,       setImportFile]       = useState(null);
+  const [importPreview,    setImportPreview]    = useState(null);
+  const [importInProgress, setImportInProgress] = useState(false);
+  const [importError,      setImportError]      = useState(null);
+  const [restoreConfirm,   setRestoreConfirm]   = useState(false);
+  const fileInputRef = useRef(null);
 
   // Recents (W1)
   const [recents, setRecents] = useState([]); // [{ foodId, foodName, lastAmount, lastMeal, loggedAt }]
@@ -2972,7 +3088,7 @@ export default function NutriTrack() {
 
     // ── Build JSON object ──────────────────────────────────────────────
     const jsonObj = {
-      version: "1.0",
+      version: EXPORT_SCHEMA_VERSION,
       exported_at: exportedAt.toISOString(),
       logs,
       recipes,
@@ -2982,6 +3098,12 @@ export default function NutriTrack() {
       supplementStacks,
       notionStatus: { lastSyncedAt },
     };
+
+    // Add checksum to JSON export (Phase 11.7)
+    const jsonString = JSON.stringify(jsonObj, null, 2);
+    const jsonChecksum = await computeChecksum(jsonString);
+    jsonObj.checksum = jsonChecksum;
+    const finalJsonString = JSON.stringify(jsonObj, null, 2);
 
     // ── Bundle both files into a single zip and trigger one download ───
     const zipFilename = `nutritrack-${exportDateStr}.zip`;
@@ -2993,7 +3115,7 @@ export default function NutriTrack() {
     const doZipDownload = (JSZip) => {
       const zip = new JSZip();
       zip.file(csvFilename,  csvBody);
-      zip.file(jsonFilename, JSON.stringify(jsonObj, null, 2));
+      zip.file(jsonFilename, finalJsonString);
       zip.generateAsync({ type: "blob" }).then(blob => {
         const url = URL.createObjectURL(blob);
         const a   = document.createElement("a");
@@ -3325,6 +3447,108 @@ export default function NutriTrack() {
             )}
           </div>
 
+
+          {/* Import Data (Phase 11.7) */}
+          <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>Import Data</div>
+          <div style={S.card}>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:14,lineHeight:1.5}}>Import previously exported data. Data will be validated before restore. Your current data will NOT be overwritten until you confirm.</div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{display: 'none'}}
+              accept=".json"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setImportInProgress(true);
+                setImportError(null);
+                try {
+                  const reader = new FileReader();
+                  reader.onload = async (event) => {
+                    try {
+                      const content = event.target?.result as string;
+                      const data = JSON.parse(content);
+                      if (data.checksum) {
+                        const computedChecksum = await computeChecksum(content);
+                        if (computedChecksum !== data.checksum) {
+                          setImportPreview({ valid: false, error: 'Checksum validation failed - file may be corrupted', preview: null, warnings: [] });
+                          setImportInProgress(false);
+                          return;
+                        }
+                      }
+                      const preview = previewImport(data);
+                      setImportPreview(preview);
+                      setImportFile(file);
+                    } catch (parseError) {
+                      setImportPreview({ valid: false, error: 'Failed to parse JSON file', preview: null, warnings: [] });
+                    }
+                    setImportInProgress(false);
+                  };
+                  reader.readAsText(file);
+                } catch (error) {
+                  setImportPreview({ valid: false, error: 'Failed to read file: ' + (error as Error).message, preview: null, warnings: [] });
+                  setImportInProgress(false);
+                }
+              }}
+            />
+            <button
+              style={{width:"100%",padding:14,borderRadius:12,border:"none",background:importInProgress?"#0f172a":"#0f766e",color:importInProgress?"#475569":"#fff",fontSize:15,fontWeight:700,cursor:importInProgress?"default":"pointer",marginBottom:10}}
+              disabled={importInProgress}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {importInProgress ? "Reading file..." : "Select Import File"}
+            </button>
+            {importPreview && (
+              <div style={{marginTop:12,background:"#0a1a14",border:"1px solid #065f46",borderRadius:10,padding:"12px 14px"}}>
+                {!importPreview.valid ? (
+                  <div style={{color:"#fca5a5",fontSize:13,marginBottom:8}}>X {importPreview.error}</div>
+                ) : (
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#34d399"}}>Valid import file</div>
+                    <button style={{background:"none",border:"none",color:"#475569",fontSize:16,cursor:"pointer",padding:"0 4px",lineHeight:1}} onClick={() => { setImportPreview(null); setImportFile(null); }}>X</button>
+                  </div>
+                  <div style={{fontSize:12,color:"#6ee7b7",marginBottom:8}}>
+                    <div>Log entries: {importPreview.preview?.logCount || 0}</div>
+                    <div>Recipes: {importPreview.preview?.recipeCount || 0}</div>
+                    <div>Custom foods: {importPreview.preview?.customFoodCount || 0}</div>
+                    <div>Exported: {importPreview.preview?.exportedAt ? new Date(importPreview.preview.exportedAt).toLocaleString() : 'Unknown'}</div>
+                  </div>
+                  {!restoreConfirm ? (
+                    <button style={{width:"100%",padding:12,borderRadius:10,border:"none",background:"#14532d",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}} onClick={() => setRestoreConfirm(true)}>Restore Data</button>
+                  ) : (
+                    <div style={{background:"#1c1200",border:"1px solid #92400e",borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:12,color:"#fcd34d",lineHeight:1.5}}>
+                      This will OVERWRITE your current data. Make sure you have exported your current data if needed.
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button style={{flex:1,padding:10,borderRadius:10,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontSize:13,fontWeight:600,cursor:"pointer"}} onClick={() => setRestoreConfirm(false)}>Cancel</button>
+                      <button style={{flex:1,padding:10,borderRadius:10,border:"none",background:"#d32f2f",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}} onClick={async () => {
+                        try {
+                          performRestore(importPreview.preview, { setLogs, setRecipes, setCustomFoods, setProfile, setExRatio, setSupplementStacks, setGoalOverrides });
+                          await saveData(STORAGE_KEYS.logs, importPreview.preview.logs || {});
+                          await saveData(STORAGE_KEYS.recipes, importPreview.preview.recipes || []);
+                          await saveData(STORAGE_KEYS.customFoods, importPreview.preview.customFoods || []);
+                          await saveData(STORAGE_KEYS.profile, importPreview.preview.profile || {});
+                          await saveData(STORAGE_KEYS.exRatio, importPreview.preview.exRatio || {});
+                          await saveData(STORAGE_KEYS.supplementStacks, importPreview.preview.supplementStacks || []);
+                          await saveData(STORAGE_KEYS.goalOverrides, importPreview.preview.goalOverrides || {});
+                          setRestoreConfirm(false);
+                          setImportPreview(null);
+                          setImportFile(null);
+                          setTimeout(() => window.location.reload(), 1000);
+                        } catch (error) {
+                          setImportError('Restore failed: ' + (error as Error).message);
+                          setRestoreConfirm(false);
+                        }
+                      }}>Confirm Restore</button>
+                    </div>
+                  )}
+                )}
+              </div>
+            )}
+            {importError && (
+              <div style={{marginTop:10,background:"#2d0f0f",border:"1px solid #7f1d1d",borderRadius:8,padding:"8px 10px",fontSize:12,color:"#fca5a5",lineHeight:1.4}}>{importError}</div>
+            )}
+          </div>
           {/* About / Diagnostics (on-device version + SW/cache checks) */}
           <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>About</div>
           <div style={S.card}>

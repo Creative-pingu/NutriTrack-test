@@ -1,5 +1,5 @@
 // NutriTrack Service Worker
-const CACHE_VERSION = "nutritrack-v75-test";
+const CACHE_VERSION = "nutritrack-v76-test";
 
 const BASE_PATH = "/NutriTrack-test/";
 
