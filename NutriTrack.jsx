@@ -459,10 +459,19 @@ const STORAGE_KEYS = {
   errorLogs:        "nt-error-logs",    // Phase 8 — local-only post-mortem error logs (R8)
 };
 
-// ── STORAGE HEALTH THRESHOLDS (Phase 6b) ──────────────────────────────────
+// ── STORAGE HEALTH THRESHOLDS (Phase 6b / 11.7) ──────────────────────────────────
+// Phase 11.7: Single-Context Architecture with dual thresholds
+// - Design threshold: 1MB for normal 2-month usage (soft warning)
+// - Hard cap: 5MB browser localStorage limit (actual hard stop)
 // Named constants so band adjustment is a one-line change.
+const STORAGE_DESIGN_LIMIT = 1 * 1024 * 1024;  // 1MB - Phase 11.7 design threshold
+const STORAGE_HARD_LIMIT   = 5 * 1024 * 1024;  // 5MB - browser localStorage cap
 const STORAGE_WARN_PCT  = 70; // yellow above this
-const STORAGE_CRIT_PCT  = 90; // red above this
+const STORAGE_CRIT_PCT  = 90; // red above this percentage of DESIGN limit
+
+// Write queue for when storage is near full (Phase 11.7)
+const writeQueue = []; // Array of {key, value, resolve, reject}
+let isProcessingQueue = false;
 
 // ── CENTRALIZED ERROR HANDLING (Phase 8 / A2 / R8) ────────────────────────────
 // Translates technical error messages (worker_502: notion_unreachable,
@@ -557,13 +566,75 @@ async function loadData(key, fallback) {
     return PARSE_ERROR;
   }
 }
-async function saveData(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-    console.log("[NutriTrack] Saved successfully:", key, "(" + (JSON.stringify(val)?.length || 0) + " bytes)");
-  } catch (e) {
-    console.error("[NutriTrack] saveData failed:", key, e);
+// ── WRITE QUEUE HELPER (Phase 11.7) ────────────────────────────────────────────
+function getStorageUsagePct() {
+  const bytes = measureLocalStorageBytes();
+  if (bytes === null) return null;
+  return (bytes / STORAGE_DESIGN_LIMIT) * 100;
+}
+
+function canWriteToStorage(additionalBytes = 0) {
+  const currentBytes = measureLocalStorageBytes();
+  if (currentBytes === null) return true; // Cannot measure, assume OK
+  const projectedBytes = currentBytes + additionalBytes;
+  // Check against design limit (1MB) for warnings, hard limit (5MB) for actual blocking
+  const designPct = (projectedBytes / STORAGE_DESIGN_LIMIT) * 100;
+  const hardPct = (projectedBytes / STORAGE_HARD_LIMIT) * 100;
+  // Block if we would exceed hard limit
+  if (hardPct >= 100) return false;
+  // Block if we would exceed critical percentage of design limit
+  if (designPct >= STORAGE_CRIT_PCT) return false;
+  return true;
+}
+
+async function processWriteQueue() {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+  while (writeQueue.length > 0) {
+    const item = writeQueue[0];
+    const canWrite = canWriteToStorage(JSON.stringify(item.value).length + item.key.length);
+    if (canWrite) {
+      try {
+        localStorage.setItem(item.key, JSON.stringify(item.value));
+        console.log("[NutriTrack] Queued write succeeded:", item.key, "(" + JSON.stringify(item.value)?.length + " bytes)");
+        item.resolve(true);
+      } catch (e) {
+        console.error("[NutriTrack] Queued write failed:", item.key, e);
+        item.reject(e);
+      }
+      writeQueue.shift();
+    } else {
+      // Still cannot write, break and wait for next call
+      break;
+    }
   }
+  isProcessingQueue = false;
+}
+
+async function saveData(key, val) {
+  return new Promise(async (resolve, reject) => {
+    const valueSize = JSON.stringify(val)?.length || 0;
+    const totalSize = key.length + valueSize;
+    
+    const canWrite = canWriteToStorage(totalSize);
+    if (canWrite) {
+      try {
+        localStorage.setItem(key, JSON.stringify(val));
+        console.log("[NutriTrack] Saved successfully:", key, "(" + valueSize + " bytes)");
+        resolve(true);
+      } catch (e) {
+        console.error("[NutriTrack] saveData failed:", key, e);
+        // If write failed, add to queue and try later
+        writeQueue.push({ key, value: val, resolve, reject });
+        reject(e);
+      }
+    } else {
+      // Cannot write now, add to queue
+      console.log("[NutriTrack] Storage threshold reached, queuing write:", key, "(" + valueSize + " bytes)");
+      writeQueue.push({ key, value: val, resolve, reject });
+      reject(new Error("Storage threshold reached. Write queued for later."));
+    }
+  });
 }
 
 // ── STORAGE VALIDATION (Phase 6b) ─────────────────────────────────────────
@@ -2849,6 +2920,27 @@ export default function NutriTrack() {
     return actualChecksum === expectedChecksum;
   }
 
+  // ── CHECKSUM UTILITIES (Phase 11.7) ─────────────────────────────────────────────
+  // SHA-256 checksum generation using Web Crypto API
+  async function generateChecksum(data) {
+    try {
+      const encoder = new TextEncoder();
+      const dataString = JSON.stringify(data);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(dataString));
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) {
+      console.error("[NutriTrack] Checksum generation failed:", e);
+      return null;
+    }
+  }
+
+  async function validateChecksum(data, expectedChecksum) {
+    if (!expectedChecksum) return false;
+    const actualChecksum = await generateChecksum(data);
+    return actualChecksum === expectedChecksum;
+  }
+
   // ── EXPORT ────────────────────────────────────────────────────────────
   const handleExportData = () => {
     const exportedAt = new Date();
@@ -3149,6 +3241,126 @@ export default function NutriTrack() {
     setImportError(null);
   };
 
+  // ── IMPORT FUNCTIONS (Phase 11.7) ──────────────────────────────────────────────────
+  const handleImportData = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setImportError(null);
+    setImportPreview(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const fileContent = e.target.result;
+          const data = JSON.parse(fileContent);
+
+          // Validate schema version
+          const SUPPORTED_VERSIONS = ["1.0", "1.1"];
+          if (!data.version || !SUPPORTED_VERSIONS.includes(data.version)) {
+            setImportError(`Unsupported export version: ${data.version}. Supported: ${SUPPORTED_VERSIONS.join(", ")}`);
+            return;
+          }
+
+          // Validate required fields
+          const requiredFields = ["logs", "recipes", "customFoods", "profile", "exRatio", "supplementStacks"];
+          const missingFields = requiredFields.filter(f => data[f] === undefined);
+          if (missingFields.length > 0) {
+            setImportError(`Missing required fields: ${missingFields.join(", ")}`);
+            return;
+          }
+
+          // Validate checksum if present
+          let checksumValid = true;
+          if (data.checksum) {
+            const coreData = {
+              logs: data.logs,
+              recipes: data.recipes,
+              customFoods: data.customFoods,
+              profile: data.profile,
+              exRatio: data.exRatio,
+              supplementStacks: data.supplementStacks,
+            };
+            checksumValid = await validateChecksum(coreData, data.checksum);
+            if (!checksumValid) {
+              setImportError("Checksum validation failed. The file may be corrupted.");
+              return;
+            }
+          } else if (data.version === "1.1") {
+            // Version 1.1 should have checksum
+            setImportError("Export file is missing checksum. This may indicate corruption.");
+            return;
+          }
+
+          // Prepare preview for user confirmation
+          const preview = {
+            version: data.version,
+            checksumValid,
+            exportedAt: data.exported_at,
+            logCount: Object.values(data.logs || {}).flat().length,
+            recipeCount: data.recipes?.length || 0,
+            customFoodCount: data.customFoods?.length || 0,
+            data: data,
+          };
+          setImportPreview(preview);
+        } catch (parseError) {
+          setImportError("Failed to parse the file. Please ensure it is a valid NutriTrack export.");
+        }
+      };
+      reader.readAsText(file);
+    } catch (e) {
+      setImportError(`Import failed: ${e.message}`);
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview) return;
+
+    setImportError(null);
+    const data = importPreview.data;
+
+    // Create backup of current data first (safety measure)
+    const currentState = {
+      logs,
+      recipes,
+      customFoods,
+      profile,
+      exRatio,
+      supplementStacks,
+    };
+    // Store backup in sessionStorage (cleared on tab close)
+    try {
+      sessionStorage.setItem("nt-import-backup", JSON.stringify(currentState));
+    } catch (e) {
+      console.warn("[NutriTrack] Could not create import backup:", e);
+    }
+
+    // Restore the imported data
+    setLogs(data.logs || {});
+    setRecipes(data.recipes || []);
+    setCustomFoods(data.customFoods || []);
+    setProfile(data.profile || DEFAULT_PROFILE);
+    setExRatio(data.exRatio || DEFAULT_EX_RATIO);
+    setSupplementStacks(data.supplementStacks || DEFAULT_SUPPLEMENT_STACKS);
+    if (data.notionStatus) {
+      setLastSyncedAt(data.notionStatus.lastSyncedAt || null);
+    }
+
+    // Update lastExportedAt to the imported data
+    if (data.exported_at) {
+      setLastExportedAt(data.exported_at);
+    }
+
+    // Clear import state
+    setImportPreview(null);
+  };
+
+  const cancelImport = () => {
+    setImportPreview(null);
+    setImportError(null);
+  };
+
   // ── SETTINGS ──────────────────────────────────────────────────────────
   if (view === "settings") {
     const formatSyncTime = iso => { if(!iso)return"Never"; const d=new Date(iso); return d.toLocaleDateString("en-GB",{day:"numeric",month:"short"})+" at "+d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}); };
@@ -3229,7 +3441,77 @@ export default function NutriTrack() {
             <div style={{fontSize:11,color:"#334155",textAlign:"center",marginTop:14}}>{recipes.length} {recipes.length===1?"recipe":"recipes"} stored locally</div>
           </div>
 
-          {/* Storage Health (Phase 6b) */}
+          </div>
+
+          {/* Export / Import (Phase 11.7) */}
+          <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>Data Export & Import</div>
+          <div style={S.card}>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:16,lineHeight:1.5}}>
+              Export your data for backup or transfer. Import from a previously exported file.
+              All data is processed locally on this device.
+            </div>
+            <div style={{display:"flex",gap:12,marginBottom:12}}>
+              <button
+                style={{flex:1,padding:12,borderRadius:10,border:"1px solid #3b82f6",background:"#0f172a",color:"#3b82f6",fontSize:13,fontWeight:600,cursor:"pointer"}}
+                onClick={handleExportData}
+              >
+                Export Data
+              </button>
+              <label
+                style={{flex:1,padding:12,borderRadius:10,border:"1px solid #10b981",background:"#0f172a",color:"#10b981",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+              >
+                Import Data
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{display:"none"}}
+                  onChange={handleImportData}
+                />
+              </label>
+            </div>
+            {importError && (
+              <div style={{background:"#2d0f0f",border:"1px solid #7f1d1d",borderRadius:8,padding:"10px 12px",marginTop:12,fontSize:12,color:"#fca5a5",lineHeight:1.5}}>
+                {importError}
+              </div>
+            )}
+            {importPreview && (
+              <div style={{background:"#0f1f2d",border:"1px solid #1d4ed8",borderRadius:12,padding:"14px 16px",marginTop:12}}>
+                <div style={{fontSize:13,color:"#93c5fd",fontWeight:600,marginBottom:8}}>
+                  Import Preview
+                </div>
+                <div style={{fontSize:12,color:"#64748b",marginBottom:8}}>
+                  Version: {importPreview.version}
+                  {importPreview.checksumValid && <span style={{color:"#10b981"}}> Checksum valid</span>}
+                </div>
+                <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>
+                  Exported: {new Date(importPreview.exportedAt).toLocaleString()}
+                </div>
+                <div style={{fontSize:11,color:"#e2e8f0",marginBottom:8}}>
+                  {importPreview.logCount} log entries
+                  <br/>
+                  {importPreview.recipeCount} recipes
+                  <br/>
+                  {importPreview.customFoodCount} custom foods
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button
+                    style={{flex:1,padding:10,borderRadius:10,border:"1px solid #3b82f6",background:"#1e293b",color:"#3b82f6",fontSize:12,fontWeight:600,cursor:"pointer"}}
+                    onClick={confirmImport}
+                  >
+                    Confirm Import
+                  </button>
+                  <button
+                    style={{flex:1,padding:10,borderRadius:10,border:"1px solid #334155",background:"transparent",color:"#64748b",fontSize:12,fontWeight:600,cursor:"pointer"}}
+                    onClick={cancelImport}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Storage Health (Phase 6b / 11.7) */}
           {(()=>{
             const bytes    = storageEstimate; // number | null
             const usageStr = bytes == null    ? null
@@ -3237,18 +3519,21 @@ export default function NutriTrack() {
               : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB`
               :                       `${(bytes / 1024 / 1024).toFixed(2)} MB`;
             // Thresholds vs a 5 MB practical localStorage cap (conservative iOS estimate)
-            const CAP_BYTES = 5 * 1024 * 1024;
-            const pct    = bytes != null ? (bytes / CAP_BYTES) * 100 : null;
-            const status = pct == null ? "unknown" : pct >= STORAGE_CRIT_PCT ? "red" : pct >= STORAGE_WARN_PCT ? "yellow" : "green";
+            // Phase 11.7: Dual thresholds - 1MB design limit (soft warning) + 5MB hard cap
+            const designPct = bytes != null ? (bytes / STORAGE_DESIGN_LIMIT) * 100 : null;
+            const hardPct   = bytes != null ? (bytes / STORAGE_HARD_LIMIT) * 100 : null;
+            // Use design limit for status, hard limit for actual blocking
+            const pct      = designPct;
+            const status   = pct == null ? "unknown" : pct >= STORAGE_CRIT_PCT ? "red" : pct >= STORAGE_WARN_PCT ? "yellow" : "green";
             const statusColor = { green:"#10b981", yellow:"#f59e0b", red:"#ef4444", unknown:"#64748b" }[status];
-            const statusText  = { green:"Storage healthy", yellow:"Storage approaching limit — consider exporting and reviewing data", red:"Storage near full — export now", unknown:"Storage usage unavailable" }[status];
+            const statusText  = { green:"Storage healthy", yellow:"Storage approaching 1MB design limit — consider exporting and reviewing data", red:"Storage near 1MB design limit — export now", unknown:"Storage usage unavailable" }[status];
             return (
               <>
                 <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>Storage</div>
                 <div style={S.card}>
                   {bytes != null ? (
                     <>
-                      <div style={{fontSize:13,color:"#94a3b8",marginBottom:8}}>Using <span style={{color:"#e2e8f0",fontWeight:600}}>{usageStr}</span> of NutriTrack data <span style={{fontSize:11,color:"#475569"}}>(vs 5 MB cap)</span></div>
+                      <div style={{fontSize:13,color:"#94a3b8",marginBottom:8}}>Using <span style={{color:"#e2e8f0",fontWeight:600}}>{usageStr}</span> of NutriTrack data <span style={{fontSize:11,color:"#475569"}}>(vs 1MB design / 5MB hard)</span></div>
                       <div style={{height:6,borderRadius:3,background:"#1e293b",overflow:"hidden",marginBottom:10}}>
                         <div style={{height:"100%",background:statusColor,borderRadius:3,width:`${Math.min(pct,100)}%`,transition:"width 0.4s ease"}}/>
                       </div>
