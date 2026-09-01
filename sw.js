@@ -1,11 +1,12 @@
 // NutriTrack Service Worker
-const CACHE_VERSION = "nutritrack-v78-test";
+const CACHE_VERSION = "nutritrack-v79-test";
 
 const BASE_PATH = "/NutriTrack-test/";
 
 const PRECACHE_ASSETS = [
   "/NutriTrack-test/NutriTrack.js",
   "/NutriTrack-test/foods.json",
+  "/NutriTrack-test/jszip.min.js",
   "/NutriTrack-test/icons/icon-192.png",
   "/NutriTrack-test/icons/icon-512.png",
   "/NutriTrack-test/icons/apple-touch-icon.png"

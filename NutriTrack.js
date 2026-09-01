@@ -9554,19 +9554,17 @@ function NutriTrack() {
       });
     };
 
-    // Load JSZip from cdnjs if not already present, then zip
+    // Load JSZip from local bundled file (Phase 11.7 - bundled for offline reliability)
     if (window.JSZip) {
       doZipDownload(window.JSZip);
     } else {
       var script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-      script.integrity = "sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs";
-      script.crossOrigin = "anonymous";
+      script.src = "/NutriTrack-test/jszip.min.js";
       script.onload = function () {
         return doZipDownload(window.JSZip);
       };
       script.onerror = function () {
-        return alert("Export failed: JSZip could not be loaded. Connect to the internet and try again.");
+        return alert("Export failed: JSZip could not be loaded. Please try again.");
       };
       document.head.appendChild(script);
     }
