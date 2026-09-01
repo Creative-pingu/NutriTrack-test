@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
  
-// FOOD_DB is loaded asynchronously from /NutriTrack-test/foods.json at app start.
+// FOOD_DB is loaded asynchronously from /NutriTrack/foods.json at app start.
 // Use the foodDB state (and allFoods / allFoodsForRender derived values) inside
 // the NutriTrack component. Do not reference FOOD_DB anywhere directly.
 // test
@@ -61,7 +61,7 @@ const APP_VERSION = (typeof window !== "undefined" && window.APP_VERSION) || "un
 const FOODS_DB_VERSION = "5"  // Bumped for Phase 11.5;
 
 async function loadFoodDB() {
-  const resp = await fetch(`/NutriTrack-test/foods.json?v=${FOODS_DB_VERSION}`);
+  const resp = await fetch(`./foods.json?v=${FOODS_DB_VERSION}`);
   if (!resp.ok) throw new Error(`foods.json fetch failed: ${resp.status}`);
   const envelope = await resp.json();
   if (!envelope.schema_version || envelope.schema_version !== 1) {
@@ -464,103 +464,6 @@ const STORAGE_KEYS = {
 const STORAGE_WARN_PCT  = 70; // yellow above this
 const STORAGE_CRIT_PCT  = 90; // red above this
 
-// STORAGE HARD LIMIT (Phase 11.7)
-const STORAGE_HARD_LIMIT_BYTES = 1 * 1024 * 1024; // 1MB
-const STORAGE_SOFT_LIMIT_BYTES = 5 * 1024 * 1024; // 5MB
-
-// EXPORT SCHEMA VERSION (Phase 11.7)
-const EXPORT_SCHEMA_VERSION = "1.1";
-
-// CHECKSUM HELPERS (Phase 11.7)
-async function computeChecksum(dataString) {
-  try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(dataString);
-    const hashBuffer = await crypto.subtle.digest(\'SHA-256\', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, \'0\')).join(\'\');
-  } catch {
-    let hash = 0;
-    for (let i = 0; i < dataString.length; i++) {
-      const char = dataString.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return \'fallback-\' + Math.abs(hash).toString(16);
-  }
-}
-
-
-// IMPORT VALIDATION (Phase 11.7)
-function validateImportSchema(data, expectedVersion = EXPORT_SCHEMA_VERSION) {
-  if (!data || typeof data !== \'object\') {
-    return { valid: false, error: \'Invalid data: not an object\' };
-  }
-  if (data.version !== expectedVersion) {
-    return {
-      valid: false,
-      error: \'Schema version mismatch: expected \' + expectedVersion + \', got \' + (data.version || \'unknown\')
-    };
-  }
-  const requiredFields = [\'version\', \'exported_at\', \'logs\', \'recipes\', \'customFoods\', \'profile\', \'exRatio\'];
-  for (const field of requiredFields) {
-    if (data[field] === undefined) {
-      return { valid: false, error: \'Missing required field: \' + field };
-    }
-  }
-  if (typeof data.logs !== \'object\' || Array.isArray(data.logs)) {
-    return { valid: false, error: \'logs must be an object (date-keyed)\' };
-  }
-  if (!Array.isArray(data.recipes)) {
-    return { valid: false, error: \'recipes must be an array\' };
-  }
-  if (!Array.isArray(data.customFoods)) {
-    return { valid: false, error: \'customFoods must be an array\' };
-  }
-  if (typeof data.profile !== \'object\' || Array.isArray(data.profile)) {
-    return { valid: false, error: \'profile must be an object\' };
-  }
-  if (typeof data.exRatio !== \'object\') {
-    return { valid: false, error: \'exRatio must be an object\' };
-  }
-  return { valid: true };
-}
-
-// SAFE RESTORE (Phase 11.7)
-function previewImport(data) {
-  const validation = validateImportSchema(data);
-  if (!validation.valid) {
-    return { ...validation, preview: null };
-  }
-  return {
-    valid: true,
-    preview: {
-      logCount: Object.values(data.logs || {}).flat().length,
-      recipeCount: data.recipes?.length || 0,
-      customFoodCount: data.customFoods?.length || 0,
-      exportedAt: data.exported_at,
-    },
-    warnings: [],
-  };
-}
-
-function performRestore(data, setStateFunctions) {
-  const { setLogs, setRecipes, setCustomFoods, setProfile, setExRatio, setSupplementStacks, setGoalOverrides } = setStateFunctions;
-  const validation = validateImportSchema(data);
-  if (!validation.valid) {
-    throw new Error(validation.error);
-  }
-  setLogs(data.logs || {});
-  setRecipes(data.recipes || []);
-  setCustomFoods(data.customFoods || []);
-  setProfile(data.profile || {});
-  setExRatio(data.exRatio || {});
-  setSupplementStacks(data.supplementStacks || []);
-  setGoalOverrides(data.goalOverrides || {});
-  return { success: true, message: \'Data restored successfully\' };
-}
-
-
 // ── CENTRALIZED ERROR HANDLING (Phase 8 / A2 / R8) ────────────────────────────
 // Translates technical error messages (worker_502: notion_unreachable,
 // network: fetch failed, foods.json fetch failed: 404, ...) into short,
@@ -654,64 +557,13 @@ async function loadData(key, fallback) {
     return PARSE_ERROR;
   }
 }
-// ENHANCED STORAGE WRITE WITH LIMIT CHECK (Phase 11.7)
 async function saveData(key, val) {
   try {
-    const currentUsage = measureLocalStorageBytes();
-    const newDataSize = JSON.stringify(val).length + key.length;
-    const estimatedNewUsage = (currentUsage || 0) + newDataSize;
-    if (estimatedNewUsage > STORAGE_HARD_LIMIT_BYTES) {
-      console.error('[NutriTrack] Write blocked: would exceed hard limit');
-      throw new Error('STORAGE_FULL: Cannot save data - storage limit reached. Please export and clear old data.');
-    }
-    if (estimatedNewUsage > STORAGE_SOFT_LIMIT_BYTES * 0.95) {
-      console.warn('[NutriTrack] Storage approaching soft limit');
-    }
     localStorage.setItem(key, JSON.stringify(val));
     console.log("[NutriTrack] Saved successfully:", key, "(" + (JSON.stringify(val)?.length || 0) + " bytes)");
-    
-    // Show visible notification for mobile users without console access
-    try {
-      const size = JSON.stringify(val)?.length || 0;
-      showSaveNotification('✓ Saved: ' + key + ' (' + size + ' bytes)', '#388e3c');
-    } catch (e) {
-      console.warn("[NutriTrack] Notification display failed:", e);
-    }
   } catch (e) {
     console.error("[NutriTrack] saveData failed:", key, e);
-    try {
-      showSaveNotification('✗ FAILED to save: ' + key, '#d32f2f');
-    } catch (e2) {
-      console.error("[NutriTrack] Error notification failed:", e2);
-    }
   }
-}
-
-// Helper function to show save notifications on screen
-function showSaveNotification(message, backgroundColor) {
-  const notification = document.createElement('div');
-  notification.textContent = message;
-  notification.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: ${backgroundColor};
-    color: white;
-    padding: 12px 16px;
-    border-radius: 4px;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 14px;
-    z-index: 99999;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-    max-width: 300px;
-  `;
-  notification.id = 'nt-save-notification';
-  document.body.appendChild(notification);
-  setTimeout(() => {
-    notification.style.opacity = '0';
-    notification.style.transition = 'opacity 0.3s';
-    setTimeout(() => notification.remove(), 300);
-  }, 2000);
 }
 
 // ── STORAGE VALIDATION (Phase 6b) ─────────────────────────────────────────
@@ -930,7 +782,7 @@ function SwipeableEntry({ children, onDelete }) {
 }
 // ── MAIN APP ──────────────────────────────────────────────────────────────
 export default function NutriTrack() {
-  // ── FOOD DB (async-loaded from /NutriTrack-test/foods.json) ────────────────
+  // ── FOOD DB (async-loaded from /NutriTrack/foods.json) ────────────────
   const [foodDB,       setFoodDB]       = useState([]);          // loaded array
   const [foodDBStatus, setFoodDBStatus] = useState("loading");   // "loading" | "ready" | "error"
 
@@ -949,14 +801,8 @@ export default function NutriTrack() {
   // Export
   const [lastExportedAt, setLastExportedAt] = useState(null);
   const [exportConfirm,  setExportConfirm]  = useState(null); // null or { csvRows, jsonEntries, dateRange }
-  
-  // Import/Recovery (Phase 11.7)
-  const [importFile,       setImportFile]       = useState(null);
-  const [importPreview,    setImportPreview]    = useState(null);
-  const [importInProgress, setImportInProgress] = useState(false);
-  const [importError,      setImportError]      = useState(null);
-  const [restoreConfirm,   setRestoreConfirm]   = useState(false);
-  const fileInputRef = useRef(null);
+  const [importPreview, setImportPreview] = useState(null); // null or preview data for confirmation
+  const [importError,   setImportError]   = useState(null); // null or error message
 
   // Recents (W1)
   const [recents, setRecents] = useState([]); // [{ foodId, foodName, lastAmount, lastMeal, loggedAt }]
@@ -2982,6 +2828,27 @@ export default function NutriTrack() {
       </div>
     );
   }
+  // ── CHECKSUM UTILITIES (Phase 11.7) ─────────────────────────────────────────────
+  // SHA-256 checksum generation using Web Crypto API
+  async function generateChecksum(data) {
+    try {
+      const encoder = new TextEncoder();
+      const dataString = JSON.stringify(data);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(dataString));
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) {
+      console.error("[NutriTrack] Checksum generation failed:", e);
+      return null;
+    }
+  }
+
+  async function validateChecksum(data, expectedChecksum) {
+    if (!expectedChecksum) return false;
+    const actualChecksum = await generateChecksum(data);
+    return actualChecksum === expectedChecksum;
+  }
+
   // ── EXPORT ────────────────────────────────────────────────────────────
   const handleExportData = () => {
     const exportedAt = new Date();
@@ -3088,7 +2955,7 @@ export default function NutriTrack() {
 
     // ── Build JSON object ──────────────────────────────────────────────
     const jsonObj = {
-      version: EXPORT_SCHEMA_VERSION,
+      version: "1.1",
       exported_at: exportedAt.toISOString(),
       logs,
       recipes,
@@ -3097,13 +2964,22 @@ export default function NutriTrack() {
       exRatio,
       supplementStacks,
       notionStatus: { lastSyncedAt },
-    };
+      checksum: null, // Will be set below
 
-    // Add checksum to JSON export (Phase 11.7)
-    const jsonString = JSON.stringify(jsonObj, null, 2);
-    const jsonChecksum = await computeChecksum(jsonString);
-    jsonObj.checksum = jsonChecksum;
-    const finalJsonString = JSON.stringify(jsonObj, null, 2);
+    // Generate SHA-256 checksum for integrity validation (Phase 11.7)
+    jsonObj.checksum = await generateChecksum({
+      logs: jsonObj.logs,
+      recipes: jsonObj.recipes,
+      customFoods: jsonObj.customFoods,
+      profile: jsonObj.profile,
+      exRatio: jsonObj.exRatio,
+      supplementStacks: jsonObj.supplementStacks,
+    });
+    if (!jsonObj.checksum) {
+      alert("Export failed: Could not generate checksum. Please try again.");
+      return;
+    }
+    };
 
     // ── Bundle both files into a single zip and trigger one download ───
     const zipFilename = `nutritrack-${exportDateStr}.zip`;
@@ -3115,7 +2991,7 @@ export default function NutriTrack() {
     const doZipDownload = (JSZip) => {
       const zip = new JSZip();
       zip.file(csvFilename,  csvBody);
-      zip.file(jsonFilename, finalJsonString);
+      zip.file(jsonFilename, JSON.stringify(jsonObj, null, 2));
       zip.generateAsync({ type: "blob" }).then(blob => {
         const url = URL.createObjectURL(blob);
         const a   = document.createElement("a");
@@ -3151,6 +3027,126 @@ export default function NutriTrack() {
       script.onerror = () => alert("Export failed: JSZip could not be loaded. Connect to the internet and try again.");
       document.head.appendChild(script);
     }
+  };
+
+  // ── IMPORT FUNCTIONS (Phase 11.7) ──────────────────────────────────────────────────
+  const handleImportData = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setImportError(null);
+    setImportPreview(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const fileContent = e.target.result;
+          const data = JSON.parse(fileContent);
+
+          // Validate schema version
+          const SUPPORTED_VERSIONS = ["1.0", "1.1"];
+          if (!data.version || !SUPPORTED_VERSIONS.includes(data.version)) {
+            setImportError(`Unsupported export version: ${data.version}. Supported: ${SUPPORTED_VERSIONS.join(", ")}`);
+            return;
+          }
+
+          // Validate required fields
+          const requiredFields = ["logs", "recipes", "customFoods", "profile", "exRatio", "supplementStacks"];
+          const missingFields = requiredFields.filter(f => data[f] === undefined);
+          if (missingFields.length > 0) {
+            setImportError(`Missing required fields: ${missingFields.join(", ")}`);
+            return;
+          }
+
+          // Validate checksum if present
+          let checksumValid = true;
+          if (data.checksum) {
+            const coreData = {
+              logs: data.logs,
+              recipes: data.recipes,
+              customFoods: data.customFoods,
+              profile: data.profile,
+              exRatio: data.exRatio,
+              supplementStacks: data.supplementStacks,
+            };
+            checksumValid = await validateChecksum(coreData, data.checksum);
+            if (!checksumValid) {
+              setImportError("Checksum validation failed. The file may be corrupted.");
+              return;
+            }
+          } else if (data.version === "1.1") {
+            // Version 1.1 should have checksum
+            setImportError("Export file is missing checksum. This may indicate corruption.");
+            return;
+          }
+
+          // Prepare preview for user confirmation
+          const preview = {
+            version: data.version,
+            checksumValid,
+            exportedAt: data.exported_at,
+            logCount: Object.values(data.logs || {}).flat().length,
+            recipeCount: data.recipes?.length || 0,
+            customFoodCount: data.customFoods?.length || 0,
+            data: data,
+          };
+          setImportPreview(preview);
+        } catch (parseError) {
+          setImportError("Failed to parse the file. Please ensure it is a valid NutriTrack export.");
+        }
+      };
+      reader.readAsText(file);
+    } catch (e) {
+      setImportError(`Import failed: ${e.message}`);
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview) return;
+
+    setImportError(null);
+    const data = importPreview.data;
+
+    // Create backup of current data first (safety measure)
+    const currentState = {
+      logs,
+      recipes,
+      customFoods,
+      profile,
+      exRatio,
+      supplementStacks,
+    };
+    // Store backup in sessionStorage (cleared on tab close)
+    try {
+      sessionStorage.setItem("nt-import-backup", JSON.stringify(currentState));
+    } catch (e) {
+      console.warn("[NutriTrack] Could not create import backup:", e);
+    }
+
+    // Restore the imported data
+    setLogs(data.logs || {});
+    setRecipes(data.recipes || []);
+    setCustomFoods(data.customFoods || []);
+    setProfile(data.profile || DEFAULT_PROFILE);
+    setExRatio(data.exRatio || DEFAULT_EX_RATIO);
+    setSupplementStacks(data.supplementStacks || DEFAULT_SUPPLEMENT_STACKS);
+    if (data.notionStatus) {
+      setLastSyncedAt(data.notionStatus.lastSyncedAt || null);
+    }
+
+    // Update lastExportedAt to the imported data
+    if (data.exported_at) {
+      setLastExportedAt(data.exported_at);
+    }
+
+    // Clear import state
+    setImportPreview(null);
+  };
+
+  const cancelImport = () => {
+    setImportPreview(null);
+    setImportError(null);
   };
 
   // ── SETTINGS ──────────────────────────────────────────────────────────
@@ -3447,108 +3443,6 @@ export default function NutriTrack() {
             )}
           </div>
 
-
-          {/* Import Data (Phase 11.7) */}
-          <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>Import Data</div>
-          <div style={S.card}>
-            <div style={{fontSize:12,color:"#64748b",marginBottom:14,lineHeight:1.5}}>Import previously exported data. Data will be validated before restore. Your current data will NOT be overwritten until you confirm.</div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              style={{display: 'none'}}
-              accept=".json"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setImportInProgress(true);
-                setImportError(null);
-                try {
-                  const reader = new FileReader();
-                  reader.onload = async (event) => {
-                    try {
-                      const content = event.target?.result as string;
-                      const data = JSON.parse(content);
-                      if (data.checksum) {
-                        const computedChecksum = await computeChecksum(content);
-                        if (computedChecksum !== data.checksum) {
-                          setImportPreview({ valid: false, error: 'Checksum validation failed - file may be corrupted', preview: null, warnings: [] });
-                          setImportInProgress(false);
-                          return;
-                        }
-                      }
-                      const preview = previewImport(data);
-                      setImportPreview(preview);
-                      setImportFile(file);
-                    } catch (parseError) {
-                      setImportPreview({ valid: false, error: 'Failed to parse JSON file', preview: null, warnings: [] });
-                    }
-                    setImportInProgress(false);
-                  };
-                  reader.readAsText(file);
-                } catch (error) {
-                  setImportPreview({ valid: false, error: 'Failed to read file: ' + (error as Error).message, preview: null, warnings: [] });
-                  setImportInProgress(false);
-                }
-              }}
-            />
-            <button
-              style={{width:"100%",padding:14,borderRadius:12,border:"none",background:importInProgress?"#0f172a":"#0f766e",color:importInProgress?"#475569":"#fff",fontSize:15,fontWeight:700,cursor:importInProgress?"default":"pointer",marginBottom:10}}
-              disabled={importInProgress}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {importInProgress ? "Reading file..." : "Select Import File"}
-            </button>
-            {importPreview && (
-              <div style={{marginTop:12,background:"#0a1a14",border:"1px solid #065f46",borderRadius:10,padding:"12px 14px"}}>
-                {!importPreview.valid ? (
-                  <div style={{color:"#fca5a5",fontSize:13,marginBottom:8}}>X {importPreview.error}</div>
-                ) : (
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#34d399"}}>Valid import file</div>
-                    <button style={{background:"none",border:"none",color:"#475569",fontSize:16,cursor:"pointer",padding:"0 4px",lineHeight:1}} onClick={() => { setImportPreview(null); setImportFile(null); }}>X</button>
-                  </div>
-                  <div style={{fontSize:12,color:"#6ee7b7",marginBottom:8}}>
-                    <div>Log entries: {importPreview.preview?.logCount || 0}</div>
-                    <div>Recipes: {importPreview.preview?.recipeCount || 0}</div>
-                    <div>Custom foods: {importPreview.preview?.customFoodCount || 0}</div>
-                    <div>Exported: {importPreview.preview?.exportedAt ? new Date(importPreview.preview.exportedAt).toLocaleString() : 'Unknown'}</div>
-                  </div>
-                  {!restoreConfirm ? (
-                    <button style={{width:"100%",padding:12,borderRadius:10,border:"none",background:"#14532d",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}} onClick={() => setRestoreConfirm(true)}>Restore Data</button>
-                  ) : (
-                    <div style={{background:"#1c1200",border:"1px solid #92400e",borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:12,color:"#fcd34d",lineHeight:1.5}}>
-                      This will OVERWRITE your current data. Make sure you have exported your current data if needed.
-                    </div>
-                    <div style={{display:"flex",gap:8}}>
-                      <button style={{flex:1,padding:10,borderRadius:10,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontSize:13,fontWeight:600,cursor:"pointer"}} onClick={() => setRestoreConfirm(false)}>Cancel</button>
-                      <button style={{flex:1,padding:10,borderRadius:10,border:"none",background:"#d32f2f",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}} onClick={async () => {
-                        try {
-                          performRestore(importPreview.preview, { setLogs, setRecipes, setCustomFoods, setProfile, setExRatio, setSupplementStacks, setGoalOverrides });
-                          await saveData(STORAGE_KEYS.logs, importPreview.preview.logs || {});
-                          await saveData(STORAGE_KEYS.recipes, importPreview.preview.recipes || []);
-                          await saveData(STORAGE_KEYS.customFoods, importPreview.preview.customFoods || []);
-                          await saveData(STORAGE_KEYS.profile, importPreview.preview.profile || {});
-                          await saveData(STORAGE_KEYS.exRatio, importPreview.preview.exRatio || {});
-                          await saveData(STORAGE_KEYS.supplementStacks, importPreview.preview.supplementStacks || []);
-                          await saveData(STORAGE_KEYS.goalOverrides, importPreview.preview.goalOverrides || {});
-                          setRestoreConfirm(false);
-                          setImportPreview(null);
-                          setImportFile(null);
-                          setTimeout(() => window.location.reload(), 1000);
-                        } catch (error) {
-                          setImportError('Restore failed: ' + (error as Error).message);
-                          setRestoreConfirm(false);
-                        }
-                      }}>Confirm Restore</button>
-                    </div>
-                  )}
-                )}
-              </div>
-            )}
-            {importError && (
-              <div style={{marginTop:10,background:"#2d0f0f",border:"1px solid #7f1d1d",borderRadius:8,padding:"8px 10px",fontSize:12,color:"#fca5a5",lineHeight:1.4}}>{importError}</div>
-            )}
-          </div>
           {/* About / Diagnostics (on-device version + SW/cache checks) */}
           <div style={{fontSize:13,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,marginTop:16}}>About</div>
           <div style={S.card}>
