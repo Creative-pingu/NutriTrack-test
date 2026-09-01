@@ -4,6 +4,9 @@ const CACHE_VERSION = "nutritrack-v79-test";
 const BASE_PATH = "/NutriTrack-test/";
 
 const PRECACHE_ASSETS = [
+  "/NutriTrack-test/",
+  "/NutriTrack-test/index.html",
+  "/NutriTrack-test/manifest.webmanifest",
   "/NutriTrack-test/NutriTrack.js",
   "/NutriTrack-test/foods.json",
   "/NutriTrack-test/jszip.min.js",
